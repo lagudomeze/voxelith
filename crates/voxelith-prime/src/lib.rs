@@ -8,7 +8,7 @@
 //! - **R18** 允许使用完整 Bevy、渲染组件、UI。
 //! - **R4**  依赖方向单向：`voxelith-prime → voxelith-axiom`，禁止反向。
 //!
-//! 调试设施（BRP / MCP / egui 检查器）只允许出现在本 crate，禁止下沉到 `axiom`（R5、R99）。
+//! 调试设施（BRP / egui 检查器）只允许出现在本 crate，禁止下沉到 `axiom`（R5、R99）。
 //! 详见 `docs/layers.md`、`docs/debugging.md`。
 
 pub mod debug;

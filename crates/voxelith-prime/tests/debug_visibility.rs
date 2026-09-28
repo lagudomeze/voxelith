@@ -26,9 +26,9 @@ fn health_is_visible_to_brp() {
     );
 }
 
-/// BRP 的默认端口与 `bevy_brp_mcp` 的约定一致。
+/// BRP 的默认端口是 `bevy_remote` 的约定端口。
 #[test]
-fn default_port_matches_mcp_convention() {
+fn default_port_matches_convention() {
     assert_eq!(debug::DEFAULT_BRP_PORT, 15702);
 }
 

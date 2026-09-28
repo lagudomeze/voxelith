@@ -63,7 +63,7 @@ tokei --sort code                       # 无文件 > 500 行
 | [docs/bevy-events.md](docs/bevy-events.md) | **Message vs Event**：选择依据、决策树、代码模板 |
 | [docs/combat.md](docs/combat.md) | 战斗系统设计（规则 47–63） |
 | [docs/voxel-world.md](docs/voxel-world.md) | 体素世界与渲染分离（规则 64–77） |
-| [docs/debugging.md](docs/debugging.md) | **调试通道（项目侧）**：BRP / MCP 如何接入、egui 检查器与相机前提、`LNK1102` |
+| [docs/debugging.md](docs/debugging.md) | **调试通道（项目侧）**：BRP 如何接入、egui 检查器与相机前提、`LNK1102` |
 | [docs/entities-and-rendering.md](docs/entities-and-rendering.md) | 玩家/怪物组合、渲染与 UI 边界（规则 78–89） |
 | [docs/architecture-guard.md](docs/architecture-guard.md) | 架构守卫与提交检查（规则 90–95） |
 | [docs/anti-patterns.md](docs/anti-patterns.md) | 反模式清单（规则 96–107） |

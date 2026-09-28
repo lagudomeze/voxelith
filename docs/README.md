@@ -28,7 +28,7 @@
 | 文档 | 内容 |
 |---|---|
 | [bevy-events.md](bevy-events.md) | **Message vs Event 的选择依据**：两套机制对比、决策树、本项目逐场景判定、代码模板、陷阱 |
-| [debugging.md](debugging.md) | **调试通道（项目侧）**：三条通道（BRP HTTP / MCP / egui）、代码接线、相机前提、`LNK1102`。查询配方见 skill |
+| [debugging.md](debugging.md) | **调试通道（项目侧）**：两条通道（BRP HTTP / egui）、代码接线、相机前提、`LNK1102`。查询配方见 skill |
 
 ## 状态说明
 

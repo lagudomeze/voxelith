@@ -1,13 +1,12 @@
 ---
 name: brp-http
-description: Read or change a running Voxelith Bevy app's live ECS state by POSTing JSON-RPC to the Bevy Remote Protocol HTTP endpoint (default 127.0.0.1:15702) — query component values, list components/resources, mutate or spawn, grab a screenshot. Use when you must inspect or verify what is actually in the running world, or when the brp MCP tools are unavailable. This works without MCP and without looking up BRP docs online.
-whenToUse: The user asks what a live entity's component values are, wants to verify runtime state, mentions BRP / MCP / remote inspection, or you need ground truth about a running app instead of reading source.
+description: Read or change a running Voxelith Bevy app's live ECS state by POSTing JSON-RPC to the Bevy Remote Protocol HTTP endpoint (default 127.0.0.1:15702) — query component values, list components/resources, mutate or spawn, grab a screenshot. Use when you must inspect or verify what is actually in the running world instead of reading source. Works with a plain HTTP client, no extra tooling or network lookup.
+whenToUse: The user asks what a live entity's component values are, wants to verify runtime state, mentions BRP or remote inspection, or you need ground truth about a running app.
 ---
 
 # 通过 HTTP 直连 BRP 抓运行时数据
 
-运行中的 app 会开一个 JSON-RPC 服务。**直接 POST 即可，不需要 MCP、不需要联网查文档。**
-MCP（`bevy_brp_mcp`）只是这个 HTTP 接口的包装，两者数据完全等价。
+运行中的 app 会开一个 JSON-RPC 服务。**直接 POST 即可，不需要额外客户端、不需要联网查文档。**
 
 ## 1. 起 app 并确认在跑
 
@@ -117,7 +116,7 @@ $s = ".dsh/skills/brp-http/brp.ps1"     # 相对项目根
 
 ## 7. 相关文档
 
-- [`docs/debugging.md`](../../../docs/debugging.md) —— **项目侧**接线：BRP/MCP 怎么接进代码、
-  MCP 客户端配置、egui 检查器与相机前提、`LNK1102`
+- [`docs/debugging.md`](../../../docs/debugging.md) —— **项目侧**接线：BRP 怎么接进代码、
+  egui 检查器与相机前提、`LNK1102`
 - [`reference.md`](reference.md) —— 本 skill 的细节：方法全表、返回形状、错误码、PowerShell 坑
 - [`docs/bevy-events.md`](../../../docs/bevy-events.md) —— 用 BRP 观察 Message / Event 行为时的背景

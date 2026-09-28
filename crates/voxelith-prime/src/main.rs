@@ -9,7 +9,7 @@
 //! - **R4**  依赖方向单向：`voxelith-prime → voxelith-axiom`，禁止反向。
 //! - **R43** `main.rs` 只注册顶层插件，业务装配在 [`voxelith_prime::VoxelithPlugin`]。
 //!
-//! 调试通道（BRP / MCP、egui 检查器）见 `docs/debugging.md`。
+//! 调试通道（BRP、egui 检查器）见 `docs/debugging.md`。
 
 use bevy::prelude::*;
 use voxelith_prime::VoxelithPlugin;

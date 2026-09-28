@@ -24,6 +24,30 @@
 | `rpc.discover` | 无 | `{methods:[{name,...}]}` |
 | `schedule.list` / `schedule.graph` | 无 / `{label}` | 调度信息 |
 
+### ⚠️ `+watch` 方法不要用简单 HTTP 客户端调
+
+`rpc.discover` 里还有三个 watching 方法：
+
+```text
+world.get_components+watch    world.list_components+watch    world.observe+watch
+```
+
+实测：它们会**保持长连接流式推送**，不是一问一答。用 `Invoke-RestMethod` / `Invoke-WebRequest`
+调用会**一直挂住**（实测 `-TimeoutSec 5` 也无法中断，180 秒仍在运行），必须手动杀进程。
+
+**要观察变化，改用轮询**：
+
+```powershell
+# 每 500ms 读一次，自己比对
+while ($true) {
+  & $s -Query "voxelith_axiom::atoms::health::Health" 6>&1 | Select-String 'current'
+  Start-Sleep -Milliseconds 500
+}
+```
+
+> 长连接方案（如 MCP 客户端）能正确处理 streaming，但本项目已统一走 HTTP 直连，
+> 因此**用轮询代替 watch**。
+
 ### 写入
 
 | 方法 | params | 说明 |
@@ -45,7 +69,7 @@
 |---|---|---|
 | `brp_extras/screenshot` | `{path:"绝对路径"}` | 存 PNG；**path 必填** |
 | `brp_extras/send_keys` / `type_text` | `{keys}` / `{text}` | 注入键盘 |
-| `brp_extras/click_mouse` / `move_mouse` / `drag_mouse` / `scroll_mouse` | 见 MCP schema | 注入鼠标 |
+| `brp_extras/click_mouse` / `move_mouse` / `drag_mouse` / `scroll_mouse` | 见 `bevy_brp_extras` 的方法定义 | 注入鼠标 |
 | `brp_extras/get_diagnostics` | 无 | FPS / 帧时间 |
 | `brp_extras/set_window_title` | `{title}` | 改窗口标题 |
 | `brp_extras/shutdown` | 无 | 优雅退出 |

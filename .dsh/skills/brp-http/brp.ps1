@@ -3,8 +3,7 @@
     通过 HTTP 直连 BRP 抓取/修改运行中 Voxelith app 的 ECS 状态。
 
 .DESCRIPTION
-    MCP（bevy_brp_mcp）只是 BRP HTTP 接口的包装，本脚本直接打同一个接口，
-    因此不依赖 MCP 是否配置、也不依赖联网。
+    直接打 app 开的 BRP HTTP 接口，不需要额外客户端，也不依赖联网。
 
     接口：JSON-RPC 2.0，POST 到 http://127.0.0.1:15702（根路径，无后缀）
 

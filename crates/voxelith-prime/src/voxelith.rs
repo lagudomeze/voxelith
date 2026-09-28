@@ -10,7 +10,7 @@ use crate::debug::{self, DEFAULT_BRP_PORT};
 
 /// Voxelith 的顶层插件（**R41.3** 对外发布的组装入口）。
 pub struct VoxelithPlugin {
-    /// BRP 监听端口，供 MCP 客户端连接。
+    /// BRP 监听端口，供 AI / 脚本连接。
     pub brp_port: u16,
 }
 

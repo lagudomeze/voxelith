@@ -1,4 +1,4 @@
-# 调试通道：BRP / MCP / egui 检查器（项目侧）
+# 调试通道：BRP / egui 检查器（项目侧）
 
 > 本文说明**项目如何接入**调试通道 —— 代码接线、配置、以及为什么这么做。
 > **怎么发查询**（HTTP 请求配方、方法全表、返回形状、PowerShell 坑）见 skill：
@@ -10,15 +10,18 @@
 >
 > 归属：全部属 L2（`voxelith-prime`），禁止下沉到 `voxelith-axiom`（R5、R91、R99）。
 
-## 0. 三条通道
+## 0. 两条通道
 
 | 通道 | 给谁用 | 前提 |
 |---|---|---|
 | **BRP over HTTP** | AI / 脚本 | 组件可反射；`127.0.0.1:15702` |
-| **MCP**（`bevy_brp_mcp`） | 支持 MCP 的客户端 | 同上，且**会话启动时**已配置（见 §3） |
-| **egui 世界检查器** | 人 | 窗口 + 渲染 + **一个相机**（见 §5） |
+| **egui 世界检查器** | 人 | 窗口 + 渲染 + **一个相机**（见 §4） |
 
-三者读的是**同一份世界状态**；MCP 只是 BRP HTTP 的包装，不引入第二套数据。
+两者读的是**同一份世界状态**。
+
+> 为什么不用 MCP：`bevy_brp_mcp` 只是 BRP HTTP 的包装，多一层 stdio 协议与客户端配置，
+> 且工具要等**会话启动时**注入才可用。直接 POST JSON-RPC 等价、更简单、随时可用 ——
+> 见 skill。项目代码里从来没有 `bevy_brp_mcp` 依赖，它只是外部客户端。
 
 ## 1. 接入：BRP 就是一个插件
 
@@ -65,45 +68,13 @@ fn main() {
 | 项 | 作用 |
 |---|---|
 | `install(app, port)` | 装 BRP + egui 检查器 |
-| `DEFAULT_BRP_PORT` | `15702`，与 `bevy_brp_mcp` 约定一致 |
+| `DEFAULT_BRP_PORT` | `15702`，`bevy_remote` 的默认端口约定 |
 | `VoxelithPlugin::new().with_brp_port(p)` | 换端口 |
 
 启动时会生成一个名为 `debug-sample` 的演示实体（`Health` 100/100），
 让调试通道一启动就有东西可查。
 
-## 3. MCP 客户端配置
-
-`bevy_brp_mcp` 安装后（`cargo install bevy_brp_mcp`，落在 `~/.cargo/bin`）配置客户端：
-
-```json
-"mcpServers": {
-  "brp": { "type": "stdio", "command": "bevy_brp_mcp", "args": [], "env": {} }
-}
-```
-
-**版本对应**（务必对齐）：Bevy 0.19 ↔ `bevy_brp_mcp` 0.22.7 ↔ `bevy_brp_extras` 0.22.x。
-
-### 工具清单（实测 stdio 握手枚举，40+ 个）
-
-MCP 把 BRP 方法包装成带 JSON Schema 的工具：
-
-| 类别 | 代表工具 | 作用 |
-|---|---|---|
-| **实体 / 组件** | `world_query`、`world_get_components`、`world_mutate_components`、`world_list_components`、`world_insert_components`、`world_spawn_entity`、`world_despawn_entity`、`world_reparent_entities` | 读改组件、增删实体 |
-| **资源** | `world_get_resources`、`world_insert_resources`、`world_mutate_resources`、`world_list_resources`、`world_remove_resources` | 读改资源 |
-| **监控** | `world_get_components_watch`、`world_list_components_watch`、`brp_list_active_watches`、`brp_stop_watch` | **订阅组件变化并写日志**，适合追数值变化 |
-| **bevy_brp_extras** | `brp_extras_screenshot`、`brp_extras_send_keys`、`brp_extras_type_text`、`brp_extras_click_mouse`、`brp_extras_move_mouse`、`brp_extras_get_diagnostics`、`brp_extras_shutdown` | 截图、注入输入、FPS、优雅关闭 |
-| **日志** | `brp_list_logs`、`brp_read_log`、`brp_delete_logs` | 读取 MCP 启动的 app 的输出 |
-
-### ⚠️ 配置加完之后必须重启会话
-
-MCP 客户端在**会话启动时**读取配置。**会话中途添加不会让工具出现在当前会话里**，
-需要重开对话（甚至重启 DSH）。判断方法：看当前可用工具里有没有 `brp_*` / `world_*`。
-
-在重启前可以直接打 HTTP（MCP 底层就是调它），效果等价 —— 见 §0 的 skill 链接。
-这正是 `brp-http` skill 存在的理由：**它不依赖 MCP 是否已注入**。
-
-## 4. 写代码时的约束：组件必须可反射
+## 3. 写代码时的约束：组件必须可反射
 
 BRP 用 `ReflectSerializer` 序列化组件。**未注册反射的组件不会报错，只会被跳过** ——
 表现为"组件明明挂上了，查询却查不到"。
@@ -118,7 +89,7 @@ BRP 用 `ReflectSerializer` 序列化组件。**未注册反射的组件不会�
 [`crates/voxelith-prime/tests/debug_visibility.rs`](../crates/voxelith-prime/tests/debug_visibility.rs)
 断言组件的注册里带 `ReflectComponent`。新增可观察组件时照抄该测试。
 
-## 5. egui 世界检查器（人用）
+## 4. egui 世界检查器（人用）
 
 Bevy **没有**内置世界检查器（`bevy_dev_tools` 只有 `ci_testing` / `frame_time_graph` /
 `schedule_data`），所以用 `bevy-inspector-egui 0.37`（对应 Bevy 0.19 + egui 0.34）：
@@ -163,7 +134,7 @@ Bevy 的组件名来自 `DebugName`，只有启用 `debug` feature 才有实际�
 bevy = { workspace = true, features = ["bevy_remote", "debug"] }
 ```
 
-## 6. Windows 链接问题（`LNK1102`）
+## 5. Windows 链接问题（`LNK1102`）
 
 Bevy 全量 debug 构建 + egui 会让 MSVC 的 `link.exe` 撞
 `LINK : fatal error LNK1102: out of memory`。这**不是物理内存不足**，
@@ -176,7 +147,7 @@ Bevy 全量 debug 构建 + egui 会让 MSVC 的 `link.exe` 撞
 | [`.cargo/config.toml`](../.cargo/config.toml) | `linker = "rust-lld.exe"` | 换用 Rust 自带 lld，绕开地址空间限制 |
 | [`Cargo.toml`](../Cargo.toml) | `[profile.dev.package."*"] debug = "line-tables-only"` | 依赖只留行号级调试信息，链接压力骤降 |
 
-## 7. 速查（项目侧）
+## 6. 速查（项目侧）
 
 | 我想做的 | 做法 |
 |---|---|

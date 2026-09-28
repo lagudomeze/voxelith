@@ -1,4 +1,4 @@
-//! L2 调试设施：让 MCP 客户端（AI）与 egui 检查器（人）看到 ECS 组件数据。
+//! L2 调试设施：让 AI（BRP over HTTP）与 egui 检查器（人）看到 ECS 组件数据。
 //!
 //! ## BRP 就是一个插件
 //!
@@ -29,7 +29,7 @@
 use bevy::prelude::*;
 use bevy_brp_extras::BrpExtrasPlugin;
 
-/// BRP 默认监听端口（`bevy_remote` 与 `bevy_brp_mcp` 的约定）。
+/// BRP 默认监听端口（`bevy_remote` 的默认端口约定）。
 pub const DEFAULT_BRP_PORT: u16 = 15702;
 
 /// 安装全部调试设施。需在 `DefaultPlugins` 之后调用。
@@ -38,10 +38,10 @@ pub fn install(app: &mut App, brp_port: u16) {
     install_inspector(app);
 }
 
-/// 安装 BRP（MCP 读取 / 修改组件的主通道）。
+/// 安装 BRP（AI / 脚本读取与修改组件的主通道）。
 fn install_brp(app: &mut App, port: u16) {
     app.add_plugins(BrpExtrasPlugin::with_port(port));
-    info!("BRP 已就绪：http://127.0.0.1:{port}（MCP 客户端可用 bevy_brp_mcp 连接）");
+    info!("BRP 已就绪：http://127.0.0.1:{port}（POST JSON-RPC 即可查询）");
 }
 
 /// 安装 egui 世界检查器（人用的组件下拉浏览器）。
