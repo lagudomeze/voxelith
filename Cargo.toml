@@ -1,0 +1,52 @@
+# ./Cargo.toml
+[workspace]
+resolver = "2"
+members = [
+    "crates/voxelith-axiom",
+    "crates/voxelith-prime",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+bevy = "0.19"
+
+[workspace.dependencies.bevy_app]
+version = "0.19"
+
+[workspace.dependencies.bevy_ecs]
+version = "0.19"
+
+[workspace.dependencies.bevy_reflect]
+version = "0.19"
+
+# 调试设施只允许 prime（L2）使用，禁止进入 axiom（R5、R91、R99）。
+[workspace.dependencies.bevy_brp_extras]
+version = "0.22"
+
+[workspace.dependencies.bevy-inspector-egui]
+version = "0.37"
+
+[workspace.dependencies.voxelith-axiom]
+path = "crates/voxelith-axiom"
+
+# ---------------------------------------------------------------------------
+# 构建配置：Windows 上 Bevy 全量 debug 构建默认会撞 `LNK1102: out of memory`
+# （MSVC link.exe 的 32 位地址空间限制，与机器物理内存无关）。
+# 链接器改用 rust-lld：见 `.cargo/config.toml`。
+# 这里降低依赖的调试信息量，进一步减小链接压力。
+# ---------------------------------------------------------------------------
+
+# 依赖用 line-tables-only 调试信息：链接快、体积小，仍足够定位 panic 位置。
+[profile.dev.package."*"]
+debug = "line-tables-only"
+
+[profile.dev]
+# 本项目自身代码保留完整调试信息。
+debug = true
+
+[profile.test.package."*"]
+debug = "line-tables-only"

@@ -1,0 +1,19 @@
+# 统一换行符：仓库内存 LF，检出时按平台自动处理。
+# 不这样做的后果：Windows 上 git 会把 LF 换成 CRLF，协作时产生大量无意义的 diff。
+* text=auto eol=lf
+
+# PowerShell 脚本：Windows 上用 CRLF 更稳（部分旧版 PowerShell 对 LF 脚本敏感）。
+*.ps1 text eol=crlf
+
+# 二进制/生成物：不做换行转换。
+*.png binary
+*.ico binary
+*.exe binary
+
+# Rust 源码与文档：强制 LF。
+*.rs   text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+
+# Cargo.lock 是生成文件，但在 bin/应用仓库里应当提交（保证可复现构建）。
+Cargo.lock text eol=lf -diff

@@ -1,0 +1,13 @@
+# .cargo/config.toml
+#
+# 为什么需要这个文件：
+# Windows 上用 MSVC 的 link.exe 链接 Bevy 全量 debug 构建会撞
+# `LINK : fatal error LNK1102: out of memory`。
+# 这不是物理内存不足，而是 link.exe 的 32 位地址空间限制。
+# 换成 Rust 自带的 rust-lld 即可绕开（随 toolchain 分发，无需额外安装）。
+#
+# 配套的 `[profile.*.package."*"] debug = "line-tables-only"` 在根 Cargo.toml 里，
+# 两者一起把链接压力降下来。
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

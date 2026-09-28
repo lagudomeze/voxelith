@@ -1,0 +1,22 @@
+# crates/voxelith-prime/Cargo.toml
+[package]
+name = "voxelith-prime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["inspector"]
+# egui 世界检查器（debug 下拉）。需要窗口 + 渲染，故可关闭以跑无头模式。
+inspector = ["dep:bevy-inspector-egui"]
+
+[dependencies]
+# L2 允许完整 bevy（R6、R18）。
+# - `bevy_remote`：BRP 服务器，供 MCP 客户端访问组件数据。
+# - `debug`：组件/类型名可用；缺了它组件名会打印成 FEATURE_DISABLED，检查器看起来是空的。
+bevy = { workspace = true, features = ["bevy_remote", "debug"] }
+bevy_brp_extras = { workspace = true }
+bevy-inspector-egui = { workspace = true, optional = true }
+
+[dependencies.voxelith-axiom]
+workspace = true
