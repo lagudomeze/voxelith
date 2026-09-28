@@ -117,5 +117,7 @@ $s = ".dsh/skills/brp-http/brp.ps1"     # 相对项目根
 
 ## 7. 相关文档
 
-- [`docs/debug-mcp.md`](../../../docs/debug-mcp.md) —— 项目内的 BRP / MCP 接入说明、MCP 工具清单
+- [`docs/debugging.md`](../../../docs/debugging.md) —— **项目侧**接线：BRP/MCP 怎么接进代码、
+  MCP 客户端配置、egui 检查器与相机前提、`LNK1102`
+- [`reference.md`](reference.md) —— 本 skill 的细节：方法全表、返回形状、错误码、PowerShell 坑
 - [`docs/bevy-events.md`](../../../docs/bevy-events.md) —— 用 BRP 观察 Message / Event 行为时的背景
