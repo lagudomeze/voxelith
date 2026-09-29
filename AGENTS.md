@@ -9,7 +9,7 @@
 
 ```
 voxelith-prime (L2 表现/内容)  ──依赖──►  voxelith-axiom (L0 atoms + L1 behaviors)
-      可依赖完整 bevy                          只允许 bevy_ecs / bevy_app / bevy_reflect
+      可依赖完整 bevy                    只允许 bevy_ecs / bevy_app / bevy_reflect / bevy_time
 ```
 
 **数据归数据，公式归公式，执行归执行，表现归表现。**（规则 112）
@@ -62,6 +62,7 @@ tokei --sort code                       # 无文件 > 500 行
 | [docs/events-and-plugins.md](docs/events-and-plugins.md) | 事件通信 + Plugin 使用（规则 33–46） |
 | [docs/bevy-events.md](docs/bevy-events.md) | **Message vs Event**：选择依据、决策树、代码模板 |
 | [docs/combat.md](docs/combat.md) | 战斗系统设计（规则 47–63） |
+| [docs/combat-mechanics.md](docs/combat-mechanics.md) | **战斗机制 ECS 设计稿**：属性/修饰符/伤害类型/抵抗/判定/管线/状态、扩展手册、里程碑 |
 | [docs/voxel-world.md](docs/voxel-world.md) | 体素世界与渲染分离（规则 64–77） |
 | [docs/debugging.md](docs/debugging.md) | **调试通道（项目侧）**：BRP 如何接入、egui 检查器与相机前提、`LNK1102` |
 | [docs/entities-and-rendering.md](docs/entities-and-rendering.md) | 玩家/怪物组合、渲染与 UI 边界（规则 78–89） |
@@ -69,7 +70,7 @@ tokei --sort code                       # 无文件 > 500 行
 | [docs/anti-patterns.md](docs/anti-patterns.md) | 反模式清单（规则 96–107） |
 | [docs/workflow.md](docs/workflow.md) | 新增/修改功能工作流（规则 108–111） |
 | [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) | **待人工确认**的规则歧义与冲突 |
-| [work/TODO.md](work/TODO.md) | 当前任务清单（初始为空） |
+| [work/TODO.md](work/TODO.md) | 当前任务清单 |
 
 ## 给 AI 的固定动作
 

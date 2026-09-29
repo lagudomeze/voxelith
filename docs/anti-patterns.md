@@ -56,7 +56,7 @@ bevy = { workspace = true }
 ```
 
 **为什么错**：`bevy` 会拖入 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr`，L0 物理隔离失效（R94）。
-**正确**：只依赖 `bevy_ecs` / `bevy_app` / `bevy_reflect`。
+**正确**：只依赖 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`（R5 修订）。
 **检查**：`arch-guard.ps1` 第 2、5 项。
 
 ### ❌ L2 直接改 L0/L1 核心数据（R100、R16）

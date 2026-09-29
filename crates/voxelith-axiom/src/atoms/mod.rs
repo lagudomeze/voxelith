@@ -8,6 +8,13 @@
 //!
 //! 详见 `docs/layers.md`。
 
+pub mod attribute;
+
 pub mod health;
 
+pub use attribute::{
+    AttributeAllocationMessage, AttributeBaseChangedMessage, AttributeFinalMessage,
+    AttributeGrowthMessage, AttributeId, AttributePlugin, AttributeRespecMessage, AttributeStage,
+    AttributeValues, Attributes,
+};
 pub use health::{Health, HealthPlugin, ModifyHealthMessage, apply_health_change};

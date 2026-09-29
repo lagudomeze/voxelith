@@ -6,7 +6,7 @@
 
 | crate | 承载层级 | 允许依赖 | 对应规则 |
 |---|---|---|---|
-| `voxelith-axiom` | L0 `atoms` + L1 `behaviors` | `bevy_ecs`、`bevy_app`、`bevy_reflect` | R2、R5 |
+| `voxelith-axiom` | L0 `atoms` + L1 `behaviors` | `bevy_ecs`、`bevy_app`、`bevy_reflect`、`bevy_time` | R2、R5（已修订，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q21） |
 | `voxelith-prime` | L2 表现与游戏内容 | 完整 `bevy` 全特性 + `voxelith-axiom` | R3、R6 |
 
 ## 2. 依赖方向
@@ -16,7 +16,7 @@ voxelith-prime ──► voxelith-axiom        ← 唯一允许的方向
 voxelith-axiom ──✗──► voxelith-prime     ← 禁止（R4、R92）
 ```
 
-- `voxelith-axiom` **只**允许 `bevy_ecs` / `bevy_app` / `bevy_reflect`，禁止依赖完整 `bevy`。（R5）
+- `voxelith-axiom` **只**允许 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`，禁止依赖完整 `bevy`。（R5，2024 修订：加入 `bevy_time` 以承载时间推进，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q21）
   - 完整 `bevy` 会把 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr` 一起拖进来，破坏 L0/L1 纯净性。（R91、R99）
 - `voxelith-prime` 可用完整 Bevy 及其全部特性。（R6）
 
@@ -44,7 +44,7 @@ crate 边界是防止 AI（和人类）揉代码的**最强武器**：越界会�
 ```
 Cargo.toml                      # workspace：members / workspace.package / workspace.dependencies
 crates/voxelith-axiom/          # L0 + L1
-    Cargo.toml                  # bevy_ecs, bevy_app, bevy_reflect
+    Cargo.toml                  # bevy_ecs, bevy_app, bevy_reflect, bevy_time
     src/lib.rs                  # 顶部写规则注释（R95）
     src/atoms/                  # L0
     src/behaviors/              # L1
@@ -67,7 +67,7 @@ crates/voxelith-prime/          # L2
 //! voxelith-axiom：核心机制层（L0 atoms + L1 behaviors）。
 //!
 //! 硬约束（违反即编译失败或架构守卫失败）：
-//! - R5  只允许依赖 bevy_ecs / bevy_app / bevy_reflect，禁止完整 bevy。
+//! - R5  只允许依赖 bevy_ecs / bevy_app / bevy_reflect / bevy_time，禁止完整 bevy。
 //! - R8  L0 组件只依赖自己，系统只查询自己，不跨组件查询。
 //! - R13 L1 修改 L0 数据必须通过事件，不直接改。
 //! - R10 L0 禁止 Sprite / Text / Mesh / Transform / Handle<Image>。

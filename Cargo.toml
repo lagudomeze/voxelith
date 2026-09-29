@@ -23,6 +23,10 @@ version = "0.19"
 [workspace.dependencies.bevy_reflect]
 version = "0.19"
 
+# R5 修订（Q21）：axiom 允许用时间推进（Time/Duration），但不含任何渲染/资产/窗口 crate。
+[workspace.dependencies.bevy_time]
+version = "0.19"
+
 # 调试设施只允许 prime（L2）使用，禁止进入 axiom（R5、R91、R99）。
 [workspace.dependencies.bevy_brp_extras]
 version = "0.22"

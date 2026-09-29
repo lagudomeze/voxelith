@@ -11,7 +11,7 @@
       2. R91  cargo tree -p voxelith-axiom 不含 bevy_render/bevy_ui/bevy_sprite/bevy_pbr
       3. R92  cargo tree -p voxelith-axiom 不含 voxelith-prime
       4. R93  tokei：无源码文件 > 500 行（R26）
-      5. R5   voxelith-axiom/Cargo.toml 不出现完整 bevy 依赖
+      5. R5   voxelith-axiom 依赖白名单：bevy_ecs/bevy_app/bevy_reflect/bevy_time
       6. R95  每个 crate 入口文件顶部含规则注释
       7. R21/R96 源码中不出现 mod base/common/utils/helpers
       8. R104 源码中不出现 "scense"
@@ -215,21 +215,37 @@ if (-not (Test-Path $axiomToml)) {
 else {
     $tomlText = Get-Content -LiteralPath $axiomToml -Raw
     $hits = @()
-    if ($tomlText -match '(?m)^\s*bevy\s*=|\bbevy\s*=\s*\{') { $hits += '发现 `bevy = ...` 依赖' }
-    foreach ($forbidden in @('bevy_render', 'bevy_ui', 'bevy_sprite', 'bevy_pbr', 'bevy_asset', 'bevy_transform', 'bevy_window')) {
-        if ($tomlText -match ("(?m)^\s*" + $forbidden + "\s*=")) { $hits += "发现 `$forbidden` 依赖" }
+
+    # R5（Q21 修订）：axiom 的依赖必须在白名单内；完整 bevy、渲染 crate、调试设施都自动落网。
+    $allowed = @('bevy_ecs', 'bevy_app', 'bevy_reflect', 'bevy_time')
+    $inDependencies = $false
+    foreach ($line in ($tomlText -split "`n")) {
+        $trimmed = $line.Trim()
+        if ($trimmed -match '^\[(.+)\]$') {
+            $inDependencies = ($matches[1] -eq 'dependencies')
+            continue
+        }
+        if (-not $inDependencies -or -not $trimmed -or $trimmed.StartsWith('#')) { continue }
+        if ($trimmed -match '^([A-Za-z0-9_\-]+)\s*=') {
+            $depName = $matches[1]
+            if ($allowed -notcontains $depName) {
+                $hits += "依赖白名单外：$depName（R5 只允许 $($allowed -join ' / ')）"
+            }
+        }
     }
-    # 调试设施（BRP / egui 检查器）属 L2，禁止下沉到 L0/L1（R5、R99）。
+
+    # 调试设施（BRP / egui 检查器）属 L2，禁止下沉到 L0/L1（R5、R99）——单独给出更直白的报错。
     foreach ($forbidden in @('bevy_brp_extras', 'bevy-inspector-egui', 'bevy_remote', 'bevy_egui')) {
         if ($tomlText -match ("(?m)^\s*" + [regex]::Escape($forbidden) + "\s*=")) {
             $hits += "发现调试设施依赖 `$forbidden`（属 L2，禁止进 axiom）"
         }
     }
+    $r5Name = "voxelith-axiom 依赖白名单（$($allowed -join '/')）"
     if ($hits) {
-        Add-Result 'R5' 'voxelith-axiom 只依赖 bevy_ecs/bevy_app/bevy_reflect' $false ($hits -join "`n")
+        Add-Result 'R5' $r5Name $false ($hits -join "`n")
     }
     else {
-        Add-Result 'R5' 'voxelith-axiom 只依赖 bevy_ecs/bevy_app/bevy_reflect' $true
+        Add-Result 'R5' $r5Name $true
     }
 }
 

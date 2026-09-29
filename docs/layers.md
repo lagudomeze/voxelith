@@ -95,3 +95,12 @@ L0 的典型成员：`Health`、`Lifetime`（R61、R63）、纯数值事件定�
 3. 如果我需要跨层，是不是应该发事件？
 4. 我引用的类型，是不是把上层的东西拖下来了？
 5. 我的模块名是领域名还是角色名（`base`/`utils`）？
+
+## 8. L0 / L1 测试约定
+
+- **用 `App::new()` + 被测模块自己的 Plugin**，不要用 `MinimalPlugins`：
+  `MinimalPlugins` 属于 `bevy_internal`（`bevy` facade），`axiom` 只有 `bevy_app`，**导不进来**。
+  `App::new()` 自带 `MainSchedulePlugin`，`app.update()` 就能跑。
+- 测试放 `crates/voxelith-axiom/tests/`（集成测试）或模块内 `#[cfg(test)]`（需要访问私有字段时）。
+- 需要断言"没有消息就不重算"这类**私有状态**（如缓存版本号）时，用模块内单测；
+  行为契约（数值结果）一律写集成测试，顺便固化 Message/Event 用法。

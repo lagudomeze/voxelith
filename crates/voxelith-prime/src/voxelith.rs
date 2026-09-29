@@ -5,6 +5,8 @@
 
 use bevy::prelude::*;
 use voxelith_axiom::atoms::HealthPlugin;
+use voxelith_axiom::atoms::attribute::{AttributeId, AttributePlugin, AttributeValues, Attributes};
+use voxelith_axiom::behaviors::attributes::{AttributeBehaviorPlugin, AttributeModifiers};
 
 use crate::debug::{self, DEFAULT_BRP_PORT};
 
@@ -38,7 +40,8 @@ impl Default for VoxelithPlugin {
 impl Plugin for VoxelithPlugin {
     fn build(&self, app: &mut App) {
         // ---- L0 / L1：核心机制（子插件嵌套，不外泄给 main.rs，R42）----
-        app.add_plugins(HealthPlugin);
+        // L0 属性负责"存值 + 唯一写入口"，L1 属性负责"基础值 + 修饰符 → 最终值"（R112）。
+        app.add_plugins((HealthPlugin, AttributePlugin, AttributeBehaviorPlugin));
 
         // ---- L2 调试设施 ----
         // 需在 `DefaultPlugins` 之后：BRP 与 egui 检查器都依赖它提供的
@@ -50,11 +53,23 @@ impl Plugin for VoxelithPlugin {
     }
 }
 
-/// 生成一个带 [`voxelith_axiom::atoms::Health`] 的演示实体。
+/// 生成一个带 [`voxelith_axiom::atoms::Health`] 与属性组件的演示实体。
+///
+/// 属性组件成对出现：`Attributes`（L0 数值）负责唯一写入口，
+/// `AttributeModifiers`（L1 槽位）负责接收装备 / 被动 / 状态派生的修饰符。
 fn spawn_debug_sample(mut commands: Commands) {
+    let mut base = AttributeValues::default();
+    base.set(AttributeId::Strength, 10.0);
+    base.set(AttributeId::Dexterity, 8.0);
+    base.set(AttributeId::Constitution, 12.0);
+
     commands.spawn((
         Name::new("debug-sample"),
         voxelith_axiom::atoms::Health::new(100),
+        Attributes::new(base, 5.0),
+        AttributeModifiers::default(),
     ));
-    info!("已生成调试演示实体 `debug-sample`（Health 100/100）");
+    info!(
+        "已生成调试演示实体 `debug-sample`（Health 100/100，力量 10 / 敏捷 8 / 体质 12，未分配 5）"
+    );
 }

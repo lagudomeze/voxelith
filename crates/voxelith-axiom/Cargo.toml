@@ -5,10 +5,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# 架构守卫（R5、R91）：本 crate 只允许 bevy_ecs / bevy_app / bevy_reflect。
+# 架构守卫（R5、R91）：本 crate 只允许 bevy_ecs / bevy_app / bevy_reflect / bevy_time。
 # 禁止添加完整 bevy 或任何渲染相关 crate（bevy_render / bevy_ui / bevy_sprite / bevy_pbr /
 # bevy_asset / bevy_transform / bevy_window）。
+# bevy_time 是 R5 的 2024 修订（Q21）：只提供时钟与 Duration，不引入渲染。
 [dependencies]
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
 bevy_reflect = { workspace = true }
+bevy_time = { workspace = true }

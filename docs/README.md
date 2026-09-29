@@ -27,6 +27,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [combat-mechanics.md](combat-mechanics.md) | **战斗机制 ECS 设计稿**（先设计后编码）：五条不变量、L0/L1 落点总表、`voxelith_defs!` 定义一处、属性/修饰符/资源/伤害类型/抵抗/判定/管线/状态、模块依赖图、扩展手册、里程碑 |
 | [bevy-events.md](bevy-events.md) | **Message vs Event 的选择依据**：两套机制对比、决策树、本项目逐场景判定、代码模板、陷阱 |
 | [debugging.md](debugging.md) | **调试通道（项目侧）**：两条通道（BRP HTTP / egui）、代码接线、相机前提、`LNK1102`。查询配方见 skill |
 
