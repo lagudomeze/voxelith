@@ -15,4 +15,3 @@
 
 pub mod atoms;
 pub mod behaviors;
-pub mod defs;

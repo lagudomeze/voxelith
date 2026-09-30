@@ -1,8 +1,11 @@
-//! L1 修饰符：只有**数据与聚合公式**。
+//! L0 修饰符：只有**数据与聚合公式**，没有组件。
 //!
-//! 它不认识"被修饰的是什么"——每个域自带修饰符槽位组件与脏消息
-//! （例：[`crate::behaviors::attributes::AttributeModifiers`]），
-//! 因此不存在中心 `ModifierTarget` 枚举那种"改一处、动全身"的枢纽耦合。
+//! 它是纯数据 + 纯算法，所以放 L0，供 [`crate::atoms::stats::Stat`]（L0）与
+//! [`crate::behaviors::resistance::Resistance`]（L1）共用；"槽位"这种组件级结构由各域自己持有。
+//!
+//! 它不认识"被修饰的是什么"：每个域把修饰符按目标分组（属性按 `StatId` 一个槽位，
+//! 抵抗按伤害类型 / 护甲 / 闪避分槽），因此不存在中心 `ModifierTarget` 枚举那种
+//! "改一处、动全身"的枢纽耦合。
 //!
 //! 聚合顺序**固定、确定性、无随机**：
 //!
@@ -13,7 +16,35 @@
 //! 顺序即语义：`flat` 先结算，`percent_add` 合并后只乘一次（多个 +10% = +20%），
 //! `percent_mul` 各自独立相乘（复利）。要调平衡就调 [`ModifierCaps`]，不要改这里。
 
+use core::time::Duration;
+
 use bevy_ecs::prelude::*;
+
+/// 取整口径（**Q25 采纳 A**）：`f32` 聚合结果 → `u32` 数值的**唯一转换点**。
+///
+/// 属性与伤害管线共用它，保证"同一份数据在任何调用点都得到同一个整数"。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Rounding {
+    /// 向下取整（默认：百分比加成不白送 1 点）。
+    #[default]
+    Floor,
+    /// 四舍五入。
+    Nearest,
+    /// 向上取整。
+    Ceil,
+}
+
+impl Rounding {
+    /// 把聚合结果转成整数（负数夹到 0）。
+    pub fn apply(self, value: f32) -> u32 {
+        let value = value.max(0.0);
+        (match self {
+            Rounding::Floor => value.floor(),
+            Rounding::Nearest => value.round(),
+            Rounding::Ceil => value.ceil(),
+        }) as u32
+    }
+}
 
 /// 修饰符的运算种类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,6 +84,8 @@ pub struct Modifier {
     pub value: f32,
     /// 来源（用于按来源批量移除）。
     pub source: ModifierSource,
+    /// 剩余寿命：`None` = 永久（装备 / 天赋）；`Some` = 临时（药水 / 状态派生），归零即移除。
+    pub remaining: Option<Duration>,
 }
 
 impl Modifier {
@@ -62,6 +95,7 @@ impl Modifier {
             op: ModifierOp::Flat,
             value,
             source,
+            remaining: None,
         }
     }
 
@@ -71,6 +105,7 @@ impl Modifier {
             op: ModifierOp::PercentAdd,
             value,
             source,
+            remaining: None,
         }
     }
 
@@ -80,7 +115,19 @@ impl Modifier {
             op: ModifierOp::PercentMul,
             value,
             source,
+            remaining: None,
         }
+    }
+
+    /// 改成临时修饰符：`duration` 走完自动移除（由各域的 `tick_*_modifier_lifetimes` 推进）。
+    pub fn lasting(mut self, duration: Duration) -> Self {
+        self.remaining = Some(duration);
+        self
+    }
+
+    /// 是否是永久修饰符。
+    pub fn is_permanent(&self) -> bool {
+        self.remaining.is_none()
     }
 }
 
@@ -119,6 +166,24 @@ impl ModifierSet {
         let before = self.0.len();
         self.0.retain(|modifier| modifier.source != source);
         self.0.len() != before
+    }
+
+    /// 推进临时修饰符的寿命；返回**是否有修饰符到期被移除**（调用方据此标脏重算）。
+    pub fn tick(&mut self, delta: Duration) -> bool {
+        let mut expired = false;
+        self.0.retain_mut(|modifier| match &mut modifier.remaining {
+            Some(remaining) => {
+                if *remaining <= delta {
+                    expired = true;
+                    false
+                } else {
+                    *remaining -= delta;
+                    true
+                }
+            }
+            None => true,
+        });
+        expired
     }
 
     /// 遍历修饰符（聚合公式用）。
@@ -226,6 +291,36 @@ mod tests {
         ]);
         // 合计 +200% 被夹到 +50%
         assert_eq!(evaluate(10.0, &modifiers, &caps), 15.0);
+    }
+
+    #[test]
+    fn temporary_modifiers_expire_and_permanent_ones_survive() {
+        let mut world = World::new();
+        let potion = source(&mut world);
+        let ring = source(&mut world);
+        let mut modifiers = set(&[
+            Modifier::flat(5.0, potion).lasting(Duration::from_secs(2)),
+            Modifier::flat(3.0, ring),
+        ]);
+
+        assert!(!modifiers.tick(Duration::from_secs(1)), "还没到期");
+        assert_eq!(modifiers.len(), 2);
+
+        assert!(modifiers.tick(Duration::from_secs(1)), "整 2 秒应到期");
+        assert_eq!(modifiers.len(), 1, "只剩永久的那条");
+        assert_eq!(evaluate(0.0, &modifiers, &ModifierCaps::default()), 3.0);
+    }
+
+    #[test]
+    fn lasting_marks_the_modifier_as_temporary() {
+        let mut world = World::new();
+        let source = source(&mut world);
+        assert!(Modifier::flat(1.0, source).is_permanent());
+        assert!(
+            !Modifier::flat(1.0, source)
+                .lasting(Duration::from_secs(1))
+                .is_permanent()
+        );
     }
 
     #[test]

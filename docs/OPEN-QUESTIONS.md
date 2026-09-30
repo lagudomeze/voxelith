@@ -143,68 +143,6 @@
 
 ---
 
-## Q17 🟨 `behaviors::combat` 的定位（R41 vs R46、R102）
-
-**问题**：机制被拆成 `modifiers` / `attributes` / `damage` / `resistance` / `rolls` / `damage_pipeline` / `status`
-七个 L1 领域后，[combat.md](combat.md) 与 Q14 里的 `behaviors::combat` 还剩什么职责？
-如果它 `build()` 里只有 `add_plugins((..))`，按 R46/R102 就是空壳 Plugin，应删掉。
-
-**候选**：
-- A. **保留为"配置 + 装配器"**：持有 `CombatConfig`（抵抗上限、判定系数、RNG 种子、取整与保底规则），
-  满足 R41.1（独立配置）→ 不是空壳。**建议此项。**
-- B. 删掉 `combat`，各域 Plugin 直接进 L2 的元组。调参常量散落各域。
-
-**影响**：调参集中度、`main.rs`/`VoxelithPlugin` 的 `add_plugins` 列表形态。
-详见 [combat-mechanics.md](combat-mechanics.md) §4.9、§9。
-
----
-
-## Q19 🟨 属性最终值的回写模式（R13、R56）
-
-**问题**：属性最终值缓存（`cached`）住在 L0 组件 `Attributes` 里，但聚合修饰符需要多组件 → 计算只能在 L1。
-L1 又不能直接写 L0（R13）。
-
-**候选**：
-- A. **L1 算完发 `AttributeFinalMessage`，L0 的 `apply_attribute_final` 唯一回写缓存**。多一次值拷贝，换来 I2/I5 成立。**建议此项。**
-- B. L1 直接写 `Attributes::cached`（破坏 R13，数值变化不可追踪）。
-- C. 最终值不放组件，改由 L1 侧 `FinalAttributes` 组件承载（L0 就不再持有最终值，读方全部依赖 L1 组件）。
-
-**影响**：读取路径（`AsRef` 指向谁）、L0/L1 边界表述、`Attributes` 的字段集合。
-详见 [combat-mechanics.md](combat-mechanics.md) §4.1。
-
----
-
-## Q20 🟨 状态实例的载体（R63、R112）
-
-**问题**：状态需要"独立生命周期 + 净化 + 免疫 + 叠加/刷新 + 宿主销毁自动清理"。
-
-**候选**：
-- A. **一状态一实体（`StatusInstance` + `ChildOf(宿主)`）**：净化=despawn、宿主销毁由层级语义带走、
-  监听器可作用域化绑定到实例实体。**建议此项。**
-- B. 宿主上一个 `StatusBucket(Vec<StatusInstance>)` 组件：少建实体，但净化/清理/计时都要手写，
-  且无法用实体级 observer。
-
-**影响**：状态的查询形态、清理路径、表现层如何订阅单个状态。
-详见 [combat-mechanics.md](combat-mechanics.md) §4.8。
-
----
-
-## Q22 🟩 两个命名确认（R20、R111）
-
-**问题**：
-1. 三个域（属性/资源/伤害类型/状态）共用的定义宏放哪？`axiom/src/defs.rs` 的 `defs` 不是领域名，
-   与 R20 的"按功能领域命名"存在张力（但它也不是 R21 禁名）。
-2. 概率判定层（命中/闪避/暴击掷骰）的领域名。
-
-**候选**：
-- 宏模块：A. `axiom/src/defs.rs`（**建议**）；B. `axiom/src/taxonomy.rs`；C. 每个域各写一份 `macro_rules!`（重复）。
-- 判定层：A. `behaviors::rolls`（**建议**）；B. `behaviors::resolution`；C. `behaviors::chance`。
-
-**影响**：模块名改动成本随时间上升（R111），建议尽早拍板。
-详见 [combat-mechanics.md](combat-mechanics.md) §3.1、§4.6。
-
----
-
 ## 已确认（推翻或细化原规则）
 
 | 原规则 | 结论 | 确认日期 |
@@ -214,4 +152,11 @@ L1 又不能直接写 L0（R13）。
 | Q13（测试策略） | **部分落地**：`cargo test --workspace` 已纳入架构守卫；首个样板见 [`crates/voxelith-axiom/tests/health.rs`](../crates/voxelith-axiom/tests/health.rs)（同时固化 Message/Event 用法）。L1 公式的表驱动测试待战斗模块落地时补。 | 已确认 |
 | Q18（资源池 vs `Health`） | **采纳 C（推迟）**：暂不引入 `atoms::resource::ResourcePools`，保留 `Health`；法力/耐力出现真实需求时再按 [combat-mechanics.md](combat-mechanics.md) §4.3 落地，并一并处理 Q2（`Health` 字段私有化）。 | 已确认 |
 | Q21（时钟与时间表示） | **采纳 B（放宽 R5）**：`voxelith-axiom` 允许依赖 `bevy_time`，用 `Time`/`Duration`；不引入 `BattleClock`。已回写 [architecture.md](architecture.md)、[anti-patterns.md](anti-patterns.md)、`axiom/Cargo.toml`、`axiom/src/lib.rs`。**注意：Q7 的 `bevy_tasks` 未获放宽**，异步与网格化仍留在 L2。 | 已确认 |
+| Q17（`behaviors::combat` 定位） | **采纳 A**：保留为"配置 + 装配器"，持有 `CombatConfig` 并分发到子域（R41.1，非空壳）。已落地。 | 已确认 |
+| Q19（属性最终值回写模式） | **先采纳 A，随后修订为"组件自成一体"**：`Stat` 自己持有修饰符槽位，收到变更消息后调用内部 `refresh()` 刷新 `cached`；`StatBaseChangedMessage` / `StatFinalMessage` 与 `behaviors::stats` 模块**已删除**（见 [combat-mechanics.md](combat-mechanics.md) §8 历史取舍）。 | 已确认（已修订） |
+| Q20（状态实例载体） | **采纳 A**：一状态一子实体（`StatusInstance` + `ChildOf(宿主)`）——净化 = despawn、宿主销毁由层级语义清理。已落地。 | 已确认 |
+| Q22（命名：宏模块 / 判定层） | 判定层 `behaviors::rolls` ✅；共享宏模块 `defs` **已废弃删除**——枚举的辅助项（`COUNT` / `ALL` / `index` / `name`）写在枚举旁边，且不再有 `defs.rs`。 | 已确认（已修订） |
+| Q23（R5 白名单范围） | **采纳 A（登记制）**：`bevy_*` 严格白名单；非 bevy 工具 crate 需先在 [architecture.md](architecture.md) 的登记表登记，守卫按表检查。`derive_more` 收窄为 `display` + `error`。 | 已确认 |
+| Q24（stats 取代 attribute） | **采纳 A**：旧 `atoms::attribute` / `behaviors::attributes` / `tests/attribute.rs` 已删除；属性与修饰符合并进 `atoms::stats`（`Stat` 自成一体），成长链落在 `behaviors::progression`。 | 已确认 |
+| Q25（`u32` 与百分比修饰符取整） | **采纳 A**：全程 `f32` 聚合，**只在最后取整一次**，唯一转换点是组件内的 `refresh`（`Stat` / 管线共用 `Rounding`，口径来自各自的 `XxxConfig`）。 | 已确认 |
 

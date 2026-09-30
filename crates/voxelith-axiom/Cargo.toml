@@ -14,3 +14,5 @@ bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
 bevy_reflect = { workspace = true }
 bevy_time = { workspace = true }
+derive_more = { workspace = true }
+exn = { workspace = true }

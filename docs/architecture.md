@@ -16,9 +16,24 @@ voxelith-prime ──► voxelith-axiom        ← 唯一允许的方向
 voxelith-axiom ──✗──► voxelith-prime     ← 禁止（R4、R92）
 ```
 
-- `voxelith-axiom` **只**允许 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`，禁止依赖完整 `bevy`。（R5，2024 修订：加入 `bevy_time` 以承载时间推进，见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q21）
-  - 完整 `bevy` 会把 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr` 一起拖进来，破坏 L0/L1 纯净性。（R91、R99）
+- `voxelith-axiom` 的依赖分两类（**R5**，2024 修订）：
+  - **bevy 家族**：严格白名单 —— `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`
+    （`bevy_time` 见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q21）；
+  - **非 bevy 工具 crate**：**登记制** —— 必须先在下面的登记表里登记，守卫脚本第 5 项对着表检查
+    （见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q23）。
+  - 禁止依赖完整 `bevy`：它会把 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr` 一起拖进来，
+    破坏 L0/L1 纯净性。（R91、R99）
 - `voxelith-prime` 可用完整 Bevy 及其全部特性。（R6）
+
+### 非 bevy 依赖登记表（`axiom`）
+
+| crate | 用途 | 为什么值得引入 |
+|---|---|---|
+| `exn` | 错误的上下文链 + `raise()` + `#[track_caller]` 定位帧 | 结构化错误要跨模块传递并定位来源，手写成本高于依赖成本 |
+| `derive_more`（仅 `display` + `error`） | `Display` / `Error` 派生 | 纯样板消除，无运行时行为 |
+
+> 新增非 bevy 依赖的流程：**先在本表登记**（写清用途与"为什么不能自己写"）→ 改 `Cargo.toml` → 跑守卫。
+> 这样每一次依赖增加都必然出现在 review 里，而不是悄悄进树。
 
 ## 3. 为什么用 crate 边界而不是纪律
 

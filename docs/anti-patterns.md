@@ -56,8 +56,9 @@ bevy = { workspace = true }
 ```
 
 **为什么错**：`bevy` 会拖入 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr`，L0 物理隔离失效（R94）。
-**正确**：只依赖 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`（R5 修订）。
-**检查**：`arch-guard.ps1` 第 2、5 项。
+**正确**：bevy 家族只允许 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`；
+其余第三方工具 crate 走**登记制**——先在 [architecture.md](architecture.md) 的登记表登记（R5 修订，Q21/Q23）。
+**检查**：`arch-guard.ps1` 第 2、5 项（第 5 项会同时检查"bevy 白名单"和"非 bevy 登记表"）。
 
 ### ❌ L2 直接改 L0/L1 核心数据（R100、R16）
 

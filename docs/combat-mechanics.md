@@ -1,416 +1,365 @@
-# 战斗机制 ECS 设计（属性 / 伤害类型 / 抵抗 / 伤害管线 / 扩展 / 状态）
+# 战斗机制 ECS 全景（属性 / 伤害类型 / 抵抗 / 伤害管线 / 扩展 / 状态）
 
-> **状态：设计稿（先设计后编码）。** 落地按 §10 里程碑推进；未拍板的点集中在 §9，并同步记在
-> [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md)（Q17–Q22）。
+> **状态：全景骨架已落地**。组件、消息、配置 Resource、阶段排序、注册表与关键公式都已就位；
+> 少数阶段体留了 `TODO(M5)` 接口（见 §8）。
+>
 > 规则依据：[layers.md](layers.md)（R8–R19、R112–R115）、[combat.md](combat.md)（R47–R63）、
 > [bevy-events.md](bevy-events.md)（Message/Event 判定）、[naming.md](naming.md)（R28–R32）。
 
 ## 0. 一句话
 
-**定义在一处，公式归 L1，数值执行在 L0，判定单独一层，管线只算数，状态自成生命周期。**
-凡是"需要多个组件同时存在才生效"的系统，一律放 **L1 `behaviors`**（R11）。
+**定义写在组件旁边，组件自成一体（收到变更消息自己刷新最终值），公式归组件内部，
+判定单独一层，管线只算数，状态自成生命周期，所有可调参数走 Resource 注入。**
 
-## 1. 五条不变量（贯穿全部模块）
+## 1. 六条不变量
 
 | # | 不变量 | 保障手段 | 违反时的症状 |
 |---|---|---|---|
-| I1 | **定义一处**：属性/资源/伤害类型/状态各只有一个定义点 | `voxelith_defs!` 宏生成 `enum + COUNT + ALL + name + index` | 漏改一处 → 编译期报错（穷尽 `match`）或加载期报错（注册表覆盖检查） |
-| I2 | **L1 算、L0 存**：公式在 L1，L0 只做"收下并写入" | L1 发 `*FinalMessage` / `Modify*Message`，L0 唯一写入口消费（R13、R56） | L1 直接写 L0 组件 → 数值变化不可追踪 |
-| I3 | **管线只读"最终值视图"**：管线不认识修饰符、不认识状态 | 每个域把聚合结果写成视图组件（`Attributes.cached` / `Resistance.final` / `Offense.final`） | 管线里出现 `Modifier` / `StatusInstance` → 公式与来源耦合 |
-| I4 | **随机只出现在判定层**：管线只有确定性的四阶段 | RNG 资源只在 `behaviors::rolls` 与状态判定中被调用，种子可注入 | 管线里 `if rng.roll()..` → 结果不可复现、不可测 |
-| I5 | **一个组件一个写入口**：谁拥有数据，谁收口写入 | L0 组件由 `atoms::*` 的执行器写；L1 组件由本域的唯一写系统写 | 两处都能写 → 双写打架 |
+| I1 | **改一处就够，漏一处会叫** | 枚举按下标开数组时（`DamageType` / `StatusId`）自带 `COUNT` / `ALL` / `index()` / `name()`；属性用显式字段 + `get` / `set` / `name` 的穷尽 `match` | 漏改 → 编译期报错（穷尽 `match`）或加载期报错（注册表覆盖检查）；属性的手写聚合漏改是静默错误，靠测试兜 |
+| I2 | **组件自成一体**：数据拥有者算自己的最终值 | `Stat` / `Resistance` 收到变更消息后调用内部 `refresh()`；**没有**"脏了 / 算好了"的来回消息 | 出现 `*FinalMessage`、脏标记在模块间来回跑 → 消息噪音与顺序耦合 |
+| I3 | **管线只读"最终值视图"** | `Stat` 与 `Resistance` 的 `Deref` 暴露 `cached`；管线不查修饰符 | 管线里出现 `Modifier` → 公式与来源耦合 |
+| I4 | **随机只出现在判定层** | RNG 资源只在 `behaviors::rolls`（与状态判定）里被调用，种子可注入 | 管线里掷骰 → 结果不可复现、不可测 |
+| I5 | **一个组件一个写入口** | 字段私有 + `pub(crate)` 改值方法 + 消息；变更与结果分开（指令 / 广播） | 两处都能写 → 双写打架 |
+| I6 | **配置皆 Resource** | 每个域的 `XxxConfig` 都是 Resource；内容层加载后注入，`CombatConfig` 统一分发 | 参数散落常量 → 无法按关卡 / 难度调参 |
 
 ## 2. 分层落点总表
 
-| 模块 | 层 | 拥有什么 | 系统 | 绝不做的 |
+| 模块 | 层 | 拥有的组件 / 资源 | 系统 | 绝不做的 |
 |---|---|---|---|---|
-| `atoms::attribute` | L0 | `AttributeId` 定义、`AttributeValues`、`Attributes` 组件（base/allocated/cached） | 只查 `Attributes` 的写入口 | 不认识修饰符、Buff、状态 |
-| `atoms::resource`（**暂不落地**，Q18） | L0 | `ResourceId` 定义、`ResourcePools`（current/max） | 只查 `ResourcePools` 的写入口 | 不认识属性公式、状态 |
-| `atoms::health` | L0 | `Health`（**保留**，Q18 决定资源池推迟） | `apply_health_change`（R56） | 不认识 `DamageType`（R47、R98） |
-| `behaviors::modifiers` | L1 | `Modifier` / `ModifierOp` / `Stacking` + 纯聚合函数 | 无系统、无组件，只被各域调用 | 不认识"被修饰的是什么" |
-| `behaviors::attributes` | L1 | `AttributeModifiers` 组件、脏消息 | 聚合 → `AttributeFinalMessage`；属性→资源上限映射 | 不写 `Attributes`（发消息，R13） |
-| `behaviors::damage` | L1 | `DamageType` 定义、`DamageRequest`、附加行为注册表 | 分派附加行为（发消息） | 不算减伤、不做状态判定 |
-| `behaviors::resistance` | L1 | `Resistance`（按伤害类型索引）、`ResistanceModifiers`、上限配置 | 聚合 → 视图；提供纯函数 `mitigate()` | 不掷骰、不写血量 |
-| `behaviors::rolls` | L1 | `CombatRng`、命中/闪避/暴击判定 | `roll_avoidance`、`roll_crit` | 不改数值、不做减伤 |
-| `behaviors::damage_pipeline` | L1 | 固定四阶段、`DamageResolvedMessage` | stage_base → attacker → defender → finalize | 不掷骰、不管状态、不管附加行为 |
-| `behaviors::status` | L1 | `StatusId` 定义、`StatusDef` 注册表、状态实例、豁免判定 | 判定/施加/每回合结算/到期/净化/免疫/叠加 | 不塞进修饰符列表、不混进管线 |
-| `behaviors::combat` | L1 | `CombatConfig`（caps/系数/种子）+ 装配 | 无业务系统 | 不写具体状态/技能内容 |
-| L2 `content` / `presentation` | L2 | 具体状态定义与行为绑定、技能表、特效 | 监听 `DamageResolvedMessage` / `StatusResolvedMessage` | 不算伤害（R17） |
+| `atoms::health` | L0 | `Health` | `apply_health_change`（R56） | 不认识 `DamageType`（R47、R98） |
+| `atoms::modifiers` | L0 | `Modifier` / `ModifierOp` / `ModifierSet` / `ModifierCaps`（Resource）/ `Rounding` | 无（纯数据 + 纯算法） | 不认识"被修饰的是什么" |
+| `atoms::stats` | L0 | **`Stat`**（`base` / `allocated` / `modifiers` / `cached`，自成一体）、`Level`、`LevelConfig`（Resource）、`StatConfig`（Resource） | 加点 / 发点数 / 洗点 / 修饰符增删与计时（**每条只查 `Stat`**，改完自己 `refresh`） | 不跨组件查询，不管成长编排 |
+| `behaviors::progression` | L1 | `GainExperienceMessage` / `LevelUpMessage` | 经验 → 升级 → 发点数（`StatStage::Intake`） | 不直接改 `Stat` |
+| `behaviors::damage` | L1 | `DamageType`、`DamageRequest`、`DamageResolvedMessage`、`DamageTags`、`DamageBehaviorRegistry`（Resource） | 按标签分派附加行为 | 不算减伤、不判状态 |
+| `behaviors::resistance` | L1 | **`Resistance`**（`base` / `modifiers` / `cached`，自成一体）、`ResistanceCaps`（Resource） | 修饰符增删与计时（只查 `Resistance`）；纯函数 `mitigate()` | 不掷骰、不写血量 |
+| `behaviors::rolls` | L1 | `CombatRng`（Resource）、`RollConfig`（Resource） | 规避 / 暴击判定（**唯一随机点**） | 不改数值、不减伤 |
+| `behaviors::damage_pipeline` | L1 | `PipelineConfig`（Resource）、`DamageStage` | 四阶段 → `DamageResolvedMessage` → `ModifyHealthMessage` | 不掷骰、不管状态 |
+| `behaviors::status` | L1 | `StatusId` / `StatusDef` / `StatusRegistry`（Resource）、`StatusInstance`、`StatusImmunity`、`StatusConfig`、`ContestParams` | 判定 / 施加 / 每回合结算 / 到期 / 净化 | 不塞进修饰符列表、不混进管线 |
+| `behaviors::combat` | L1 | `CombatConfig`（Resource） | 分发配置 + 装配子域 Plugin | 不写具体内容（状态表、技能表） |
+| L2 `content` / `presentation` | L2 | 具体状态定义、技能表、特效 | 监听 `DamageResolvedMessage` / `StatusResolvedMessage` | 不算伤害（R17） |
 
-**怎么判断放 L0 还是 L1**（沿用 [workflow.md](workflow.md) ①）：
+**放 L0 还是 L1**（沿用 [workflow.md](workflow.md) ①）：
 
-- 纯数据 + 系统只查自己 + **需要唯一写入口** → L0。
-- 需要两个以上组件/资源同时在场才能算 → L1。
-- 本设计里"状态实例"也放 L1：它的每个系统都要读宿主属性、免疫、修饰符，放 L0 只会产生一个"消费者全在 L1"的 L0 组件。
+- **公式需要的信息全在这一个组件内部** → L0（`Stat`、`Resistance` 的最终值都在 L0/L1 自己的组件里算，
+  系统只查自己 → 满足 R8）。
+- **需要两个以上组件同时在场才能算 / 跨领域编排** → L1（`progression` 的成长链、`damage_pipeline` 的伤害链）。
+- 修饰符本身没有组件（纯数据 + 纯算法），下放 L0 供两处共用；"槽位"由各自的组件持有。
 
-## 3. 定义工具：让"新增一项"只改一行
+## 3. 定义与扩展方式
 
-### 3.1 `voxelith_defs!`（宏，无 proc-macro、无新依赖）
+### 3.1 枚举：辅助项就写在枚举旁边
+
+按下标开定宽数组的枚举（`DamageType` 的抵抗表列、`StatusId` 的免疫位图与注册表列）
+自己在定义处带上辅助项，没有额外的宏、也没有 `defs.rs`：
 
 ```rust
-// crates/voxelith-axiom/src/defs.rs
-voxelith_defs! {
-    /// 一级属性（唯一定义点）。
-    pub enum AttributeId {
-        Strength = "strength",
-        Dexterity = "dexterity",
-        Constitution = "constitution",
-        Magic = "magic",
-        Willpower = "willpower",
-        Cunning = "cunning",
-    }
+// crates/voxelith-axiom/src/behaviors/damage.rs
+pub enum DamageType { Physical, Fire, Frost, Arcane }
+
+impl DamageType {
+    pub const COUNT: usize = 4;
+    pub const ALL: [Self; Self::COUNT] = [Physical, Fire, Frost, Arcane];
+    pub const fn index(self) -> usize { /* match */ }
+    pub const fn name(self) -> &'static str { /* match */ }
 }
 ```
 
-宏展开为：
+新增一种伤害类型 = 改这一个文件；漏改会在 `match` / 数组长度上**编译期报错**。
+
+### 3.2 属性：显式字段 + 组件自成一体
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AttributeId { Strength, Dexterity, /* ... */ }
+// crates/voxelith-axiom/src/atoms/stats/stat.rs
+pub struct StatBlock { pub strength: u32, pub dexterity: u32, /* ... */ }
+pub struct Stat { base: StatBlock, allocated: StatBlock, modifiers: StatModifiers, cached: StatBlock, unspent: u32 }
 
-impl AttributeId {
-    pub const COUNT: usize = [$(stringify!($variant)),*].len(); // 数组字面量 .len() 是 const
-    pub const ALL: [Self; Self::COUNT] = [$(Self::$variant),*];
-    pub const fn index(self) -> usize { self as usize }        // 无字段枚举可 as
-    pub const fn name(self) -> &'static str { match self { $(Self::$variant => $label),* } }
-}
+let base = StatBlock { dexterity: 8, constitution: 12, ..StatBlock::new(10) }; // 直接写字段
+let will = block.get(StatId::Willpower);                                       // 参数化访问
+let label = StatId::Willpower.name();                                          // "willpower"
 ```
 
-于是：**新增一个属性 = 在枚举里加一行**，`COUNT` / `ALL` / `name` / `index` 自动跟随；
-任何别处的穷尽 `match AttributeId`（UI 分组、掉落表）立即**编译期报错** —— 这就是"遗漏定义时报错"的第一道。
-
-### 3.2 数组按 `COUNT` 列宽（自动跟随）
-
-```rust
-#[derive(Clone, Copy)]
-pub struct AttributeValues([f32; AttributeId::COUNT]);          // 加一项 → 自动扩列
-impl core::ops::Index<AttributeId> for AttributeValues { /* by index() */ }
-
-#[derive(Clone, Copy, Default)]
-pub struct ResistEntry { flat: f32, percent: f32 }
-pub struct Resistance { per_type: [ResistEntry; DamageType::COUNT], /* armor, evasion */ }
-```
-
-`Resistance` 的列宽跟着 `DamageType::COUNT` 走 —— **新增一种伤害类型，抵抗定义自动跟随**，
-默认减伤 0，不会漏项。
+- 字段 `pub` 只为**方便读**；`set` / `add` / `append` / `reset` 都是 `pub(crate)`，也没有 `IndexMut`。
+- **改值只能通过消息**；系统改完账本 / 修饰符后调用组件自己的 `refresh()`，最终值同帧就是新的。
+- **代价（自觉接受）**：新增一个属性要同时改 `StatId`、`StatBlock` 字段、`StatModifiers` 槽位字段
+  与 `refresh` 里的一行（`append` / `total` / `reset` 这类手写聚合漏改是静默错误，靠测试兜）。
 
 ### 3.3 注册表覆盖检查（加载期兜底）
 
-数组能"自动跟随"，但"必须有内容"的项（每种伤害类型的附加行为、每个状态的 def）
-用注册表 + `build()` 校验，**缺项 = 启动即失败**：
-
 ```rust
-pub struct StatusRegistry { defs: [Option<StatusDef>; StatusId::COUNT] }
-
-impl StatusRegistry {
-    /// 漏定义 → Err，Plugin::build 里 expect → 启动期报错。
-    pub fn build(defs: impl IntoIterator<Item = StatusDef>)
-        -> Result<Self, MissingDefinition<StatusId>> { /* 收集缺失项 */ }
-}
+StatusRegistry::builder().define(def).build()        -> Result<_, MissingStatusDefinition>
+DamageBehaviorRegistry::builder().bind(..).build()   -> Result<_, MissingDamageBehavior>
 ```
 
-同一模式用于 `DamageBehaviorRegistry`（伤害类型 → 附加行为绑定）。
+漏定义 → `Err` → 内容层启动时 `expect` 掉，**不会静默跑起来**。
 
-### 3.4 数据与执行分离
+### 3.4 配置约定：全部走 Resource（I6）
 
-- 技能/状态/装备是**数据**（`SkillDef` / `StatusDef` / `Modifier` 列表），可配置、可序列化。
-- 执行是**枚举或函数指针**（`SkillEffect` / `BehaviorId`），加一种效果 = 加一个变体 → 穷尽 `match` 编译期报错。
-- L2 只提供数据，不写公式（R17）。
+- 每个域自带配置 Resource：`StatConfig`、`ModifierCaps`、`LevelConfig`、`ResistanceCaps`、
+  `PipelineConfig`、`RollConfig`、`StatusConfig`、`ContestParams`。
+- 内容层聚成 [`CombatConfig`](../crates/voxelith-axiom/src/behaviors/combat.rs) 注入一次，
+  `CombatPlugin` 分发到各子域（子域的 `init_resource` 只在独立使用 / 测试时兜底）。
+- **L0/L1 不读文件、不碰 `AssetServer`**（R101 精神）：加载与反序列化都在 L2，读完注入 Resource。
+
+```rust
+// L2（prime）：加载 / 构造配置 → 注入 → 装配
+app.insert_resource(CombatConfig::new())   // 真实项目：从文件读出来再构造
+   .add_plugins((HealthPlugin, StatPlugin, CombatPlugin));
+```
 
 ## 4. 模块设计
 
-### 4.1 属性（L0 `atoms::attribute` + L1 `behaviors::attributes`）
+### 4.1 属性（L0 `atoms::stats` + L1 `behaviors::progression`）
 
-**L0 数据组件**（字段私有，`AsRef<AttributeValues>` 暴露最终值）：
+**`Stat` 一个组件装四样**：
 
-```rust
-#[derive(Component, Default)]
-pub struct Attributes {
-    base: AttributeValues,       // 初始 + 升级 + 玩家分配
-    allocated: AttributeValues,  // 洗点依据
-    cached: AttributeValues,     // 最终值缓存（L1 算好回写）
-    unspent: f32,
-    revision: u64,               // 缓存版本号，避免每帧重算
-}
-```
-
-**L0 唯一写入口**（每个都只查 `Attributes`）：
-
-| 系统 | 消费 | 做什么 |
+| 字段 | 含义 | 谁改 |
 |---|---|---|
-| `apply_attribute_allocation` | `AttributeAllocationMessage` | 加点/洗点/升级 → 改 `base` / `allocated` / `unspent` |
-| `apply_attribute_final` | `AttributeFinalMessage` | **只把 L1 算好的值写进 `cached`**（+ `revision`） |
+| `base` | **初始值**（内容层生成时设定，运行期不变） | `Stat::from_base` |
+| `allocated` | 已分配的点数（升级成长发的点数也在里面） | 加点 / 洗点消息 |
+| `modifiers` | 每个属性一组修饰符槽位（装备 / 被动 / 状态派生） | 修饰符消息 |
+| `cached` | **最终值视图**：`(base + allocated) 经修饰符聚合 → 取整` | 上述变更后由 `Stat::refresh` 刷新 |
 
-**L1 公式**（需要两个组件，所以必须在 L1）：
+**变更消息（指令）**：`AllocateStatRequest`、`GrantStatPointsMessage`、`RespecStatsMessage`、
+`AddStatModifierMessage`、`RemoveStatModifiersMessage`。
+**结果消息（广播）**：`StatAllocatedMessage`、`StatAllocationFailedMessage`（带结构化 `StatError`）。
+
+每条系统都只查询 `Stat`：加点、发点数、洗点、加 / 删修饰符、临时修饰符计时（`Time` 驱动）。
+**没有** `StatBaseChangedMessage` / `StatFinalMessage` 这类来回消息。
+
+**成长在 L1**（`behaviors::progression`）：`GainExperienceMessage → Level::gain_exp(&LevelConfig) →
+LevelUpMessage + GrantStatPointsMessage`。曲线通过 `LevelCurve` 注入（数据驱动、可换表、可测试桩）。
+
+### 4.2 修饰符（L0 `atoms::modifiers`）：属性不知道修饰符从哪来
+
+只有数据与纯函数（没有组件）：
+
+```text
+final = (base + Σflat) * (1 + clamp(Σpercent_add, min, max)) * Π(1 + percent_mul)
+```
+
+- `flat` 先结算；`percent_add` 合并后只乘一次（多个 +10% = +20%）；`percent_mul` 复利。
+- 上限与取整口径由 `ModifierCaps` / `Rounding` 提供。
+- **永久 vs 临时**：`Modifier.remaining` 为 `None` = 永久（装备 / 天赋），`Some(d)` = 临时（药水 /
+  状态派生）；`Modifier::lasting(d)` 标记临时，组件的计时系统用 `Time` 推进寿命，到期即移除并 `refresh`。
+- **按来源清理**：`ModifierSource` 就是施加者的 `Entity`，`remove_by_source` 一次清掉该来源在
+  所有槽位上的修饰符（卸装备、被动失效、状态到期共用这条路）。
+- 槽位由组件持有：`Stat` 里是 `StatModifiers`（按 `StatId` 分槽），`Resistance` 里是
+  `ResistanceModifiers`（按伤害类型分 flat / percent，再加护甲 / 闪避）。
+
+### 4.3 伤害类型（L1 `behaviors::damage`）
+
+- `DamageType`（**R48**：定义在 L1，不进 `health`）+ `DamageTags`（`DOT` / `MELEE` / `CRIT` 位标志）。
+- `DamageRequest { source, target, damage_type, base_amount, amount, tags, missed, crit }`：
+  `amount` 是管线推进中的当前值，`missed` / `crit` 由判定层写入。
+- **附加行为注册表**：每种伤害类型绑一组 `DamageBehaviorBinding { behavior, requires }`；
+  `build()` 要求每个 `DamageType` 要么绑定行为、要么显式 `declare_no_behaviors` → 加载期报错。
+- 分派只做"标签筛选"，`DamageBehaviorId → 具体请求` 的映射表由内容层提供（L1 不认识内容）。
+
+**不做**：减伤（`resistance`）、状态判定（`status`）、血量（`health`）。
+
+### 4.4 抵抗（L1 `behaviors::resistance`）
+
+`Resistance` 也是一个自成整体的组件：`base`（内容层设定）+ `modifiers`（槽位）+ `cached`（视图）。
 
 ```rust
-pub fn recompute_attribute_final(
-    mut changed: MessageReader<AttributeModifiersChangedMessage>,
-    actors: Query<(&Attributes, &AttributeModifiers)>,
-    mut out: MessageWriter<AttributeFinalMessage>,
-) { /* final = modifiers::evaluate(base, mods.iter()) */ }
+pub struct ResistValues { per_type: [ResistEntry; DamageType::COUNT], armor: f32, evasion: f32 }
+let resistance: &Resistance = ...; resistance.per_type[DamageType::Fire.index()];   // Deref → 视图
 ```
 
-- 触发时机是**脏消息**，不是每帧 → 满足"最终值可缓存，不必每帧重算"。
-- L1 **不写** `Attributes`，只发 `AttributeFinalMessage`（R13）。
-- 资源上限映射（`max_life = f(Constitution, ...)` → `SetResourceMaxMessage`）**随 §4.3 一并推迟**（Q18）。
+- 两类减伤分家：
+  - **确定性**（进管线）：`mitigate(amount, entry, armor, caps)` =
+    `max((amount - flat - armor).max(0) * (1 - min(percent, max_percent)), amount * min_damage_ratio)`
+    —— 上限防免疫，保底防"零伤害"。
+  - **概率规避**（不进管线）：`evasion` 只被 `behaviors::rolls` 读。
+- 修饰符消息：`AddResistanceModifierMessage`（按 `ResistSlot` 定位）、`RemoveResistanceModifiersMessage`
+  （按来源整体清）；两条系统只查 `Resistance`，改完自己 `refresh`。
+- **不参与状态判定**：状态走 §4.7 的独立豁免框架。
 
-### 4.2 修饰符（L1 `behaviors::modifiers`）：属性不知道修饰符从哪来
-
-只放**纯数据 + 纯算法**，不认识"被修饰的是什么"，因此**没有中心 `ModifierTarget` 枚举**（避免枢纽耦合）：
+### 4.5 判定层（L1 `behaviors::rolls`）：唯一允许随机的地方
 
 ```rust
-pub enum ModifierOp { Flat, PercentAdd, PercentMul }
-pub struct Modifier { pub op: ModifierOp, pub value: f32, pub source: ModifierSource, pub expires_at: Option<Duration> }
-
-/// 固定顺序、确定性、无随机：flat → percent_add（带上限）→ percent_mul。
-pub fn evaluate(base: f32, mods: impl Iterator<Item = Modifier>, caps: &ModifierCaps) -> f32 {
-    // (base + Σflat) * (1 + clamp(Σpct_add)) * Π(1 + pct_mul)
-}
+pub struct CombatRng(SplitMix64);   // 自带 PRNG，不引入 rand；种子来自 CombatConfig
+pub struct RollConfig { base_evasion, max_evasion, base_crit_chance, crit_multiplier }
 ```
 
-各域**自治**：属性域有 `AttributeModifiers(Vec<Modifier>)` + `AttributeModifiersChangedMessage`；
-抵抗域有 `ResistanceModifiers(Vec<Modifier>)` + 自己的脏消息。
+`roll_avoidance`（读目标 `evasion`）→ `roll_crit`，用 `MessageMutator<DamageRequest>` 就地写
+`missed` / `crit`，两个系统 `.chain()` 固定顺序，并排在管线之前。同种子 = 同结果 → 整条链路可复现、可测。
 
-> 取舍说明：中心 `ModifierTarget { Attribute(..), Resistance(..) }` 少写一点管道，但把"新增可修饰量"变成
-> "改中心枚举 + 改所有消费者"。按本需求（低耦合优先），选**每域自带修饰符列表 + 共享聚合函数**。
+### 4.6 伤害管线（L1 `behaviors::damage_pipeline`）：固定四阶段
 
-### 4.3 资源（L0 `atoms::resource`）— **暂不落地（Q18 采纳 C）**
+```text
+[判定层] → Base → AttackerBonus → DefenderMitigation → Finalize → DamageResolvedMessage
+```
 
-> 结论：现在只保留 `Health`，**不引入** `ResourcePools`；等法力/耐力出现真实需求时再按本节落地
-> （届时一并处理 Q2：`Health` 字段私有化）。下面保留设计意图，供后续实现参考。
+| 阶段 | 现状 |
+|---|---|
+| `stage_base` | 已实现：把 `amount` 从 `base_amount` 初始化（保证重入安全） |
+| `stage_attacker_bonus` | 已实现暴击倍率；**TODO(M5)**：属性缩放 + 增伤规则表（规则顺序 = 注册顺序） |
+| `stage_defender_mitigation` | 已实现：读 `Resistance` 视图 + `ResistanceCaps` 调 `mitigate` |
+| `stage_finalize` | 已实现：按 `PipelineConfig::rounding` 取整 → 发 `DamageResolvedMessage` |
+
+- **顺序固定、不允许插队**：扩展方式是"往阶段里加规则"，不是插新阶段。
+- **确定性**：`missed` / `crit` 已由判定层写好，这里没有随机。
+- 之后 `forward_resolved_damage` 发 `ModifyHealthMessage`（零伤害不发），
+  再由 `behaviors::damage` 分派附加行为 → 状态判定**独立**发起。
+
+### 4.7 状态（L1 `behaviors::status`）
+
+**标识 / 定义 / 注册表与组件放在一起**（`status/mod.rs`），判定公式在 `contest.rs`，系统在 `systems.rs`：
 
 ```rust
-voxelith_defs! { pub enum ResourceId { Life = "life", Mana = "mana", Stamina = "stamina" } }
-
-#[derive(Component, Default)]
-pub struct ResourcePools([ResourcePool; ResourceId::COUNT]); // { current, max }
-```
-
-| 消息 | 系统（唯一写入口） | 语义 |
-|---|---|---|
-| `ModifyResourceMessage { entity, resource, amount }` | `apply_resource_change` | 负数=消耗，正数=恢复；夹取到 `0..=max` |
-| `SetResourceMaxMessage { entity, resource, max }` | `apply_resource_max` | 上限只能由 L1 的属性映射写 |
-
-- 归零 → 发 `ResourceDepletedEvent`（`EntityEvent`，target = 实体）。
-- 当资源池真正落地时，建议把 `Health` 收编为 `ResourceId::Life`，并保留 `ModifyHealthMessage`
-  作为语义化门面（两条消息 → 同一个写入口）。**当前决定：推迟，见 Q18。**
-
-### 4.4 伤害类型（L1 `behaviors::damage`）
-
-- `DamageType`（`voxelith_defs!`，R48：定义在 L1，不进 `health`）。
-- `DamageRequest`（`Message`，请求型）携带标识与上下文，**不含减伤结果**。
-- **附加行为分派**：`DamageBehaviorRegistry`，注册表按 `DamageType` 索引（列宽自动跟随），
-  `build()` 校验"每种类型都有绑定"（可配置为必须/可选）。
-
-```rust
-pub fn dispatch_damage_behaviors(
-    mut resolved: MessageReader<DamageResolvedMessage>,
-    registry: Res<DamageBehaviorRegistry>,
-    mut out: MessageWriter<ApplyStatusRequest>, // 只发"别的模块的消息"
-) { /* 每种伤害类型 → 它自己的附加行为 */ }
-```
-
-约束：本模块**不算减伤、不判状态**，只做"标识 + 分派"；分派通过**事件（消息）触发**，
-因此与抵抗算法零耦合。
-
-### 4.5 抵抗（L1 `behaviors::resistance`）
-
-```rust
-#[derive(Component)]
-pub struct Resistance {
-    per_type: [ResistEntry; DamageType::COUNT], // 自动跟随伤害类型
-    armor: f32,
-    evasion: f32,                               // 概率规避，不进管线（I4）
-}
-pub struct ResistanceCaps { pub max_percent: f32, pub min_damage_ratio: f32 } // 防免疫
-```
-
-- `Resistance` 是**目标的防御数据，伤害结算时只读**；写入由本模块唯一写入口 `apply_resistance_final`
-  （消费 `ResistanceFinalMessage`，由 `ResistanceModifiers` 聚合而来）。
-- **确定性减伤**（进管线）：`after_flat = max(0, amount - flat)` →
-  `after_pct = after_flat * (1 - min(percent, caps.max_percent))` → `max(结果, amount * min_damage_ratio)`。
-- **概率规避**（不进管线）：`evasion` 只被 `behaviors::rolls` 读取。
-- 抵抗**不参与状态判定**——状态判定走 §4.8 的独立豁免框架。
-- 修饰符只改数据；管线只读视图（I3）。
-
-### 4.6 判定层（L1 `behaviors::rolls`）：唯一允许随机的地方
-
-```rust
-#[derive(Resource)]
-pub struct CombatRng(SplitMix64); // 自带十几行确定性 PRNG，不引入 rand/bevy_math 依赖
-
-pub fn roll_avoidance(mut req: MessageMutator<DamageRequest>, mut rng: ResMut<CombatRng>) { /* 命中失败 → req.missed = true */ }
-pub fn roll_crit(mut req: MessageMutator<DamageRequest>, mut rng: ResMut<CombatRng>) { /* req.crit = true */ }
-```
-
-- 顺序**显式 `.chain()`**：先规避、后暴击（[bevy-events.md](bevy-events.md) §5.2：`MessageMutator` 独占，可串）。
-- 种子来自 `CombatConfig` → 同种子同输入 = 同结果，**可复现、可测**。
-- 判定结果以 `missed` / `crit` 布尔进入管线；管线本身不再掷骰（I4）。
-
-### 4.7 伤害管线（L1 `behaviors::damage_pipeline`）
-
-**阶段固定、顺序固定、不许插队**：
-
-```
-DamageRequest
-  ├─ stage_base           基础伤害（技能/武器数据解析，确定性）
-  ├─ stage_attacker_bonus 攻击方加成（读 Attributes.cached + Offense 视图，纯确定）
-  ├─ stage_defender_mitigation 防御方减伤（读 Resistance 视图 + caps，纯确定）
-  └─ stage_finalize       上限/保底/取整（集中在一处）
-        ▼
-DamageResolvedMessage { source, target, damage_type, amount, missed, crit }   ← 唯一输出
-        ▼
-forward_resolved_damage → ModifyHealthMessage（L0 唯一写入口，R50/R56）
-```
-
-- 每阶段是**纯函数 + 薄系统**，只在**已注册的规则列表**上迭代（扩展 = 往槽位注册规则，
-  不是插新阶段）；规则顺序 = 注册顺序，显式且可测。
-- 被规避（`missed`）也算一次结算，发 `amount = 0` 的 `DamageResolvedMessage`，
-  由表现层决定"闪避"演出（对应 Q9 建议 B/C）。
-- **状态判定不在管线里**：管线之后，由 §4.4 的分派触发 `ApplyStatusRequest`（需求 4/6 的硬要求）。
-
-### 4.8 状态（L1 `behaviors::status`）
-
-**定义**（一处）+ **注册表**（加载期兜底）：
-
-```rust
-voxelith_defs! { pub enum StatusId { Burning = "burning", Frozen = "frozen", Stunned = "stunned" } }
+pub enum StatusId { Burning, Frozen, Stunned }   // 自带 COUNT / ALL / index / name
 
 pub struct StatusDef {
-    pub id: StatusId,
-    pub contest: ContestKind,        // Physical / Spell / Mental
-    pub base_duration: Duration,
-    pub max_stacks: u8,
-    pub stacking: Stacking,          // Stack / Refresh / Unique
-    pub behaviors: StatusBehaviors,  // on_apply / on_tick / on_expire: BehaviorId
+    id, contest: ContestKind, base_duration: Duration,
+    max_stacks: u8, stacking: Stacking,     // Refresh / Stack / Unique
+    behaviors: StatusBehaviors,             // on_apply / on_tick / on_expire: BehaviorId
 }
+StatusRegistry::builder().define(..).build()  // 每个 StatusId 都要有定义 → 加载期报错
 ```
 
-**实例 = 独立子实体**（`StatusInstance` + `ChildOf(host)`）：
+**实例 = 独立子实体**（`StatusInstance` + `ChildOf(宿主)`）：
 
 | 需求 | 落地方式 |
 |---|---|
-| 独立生命周期 | 实例实体自己计时；`StatusExpiredEvent`（`EntityEvent`）宣告结束 |
-| 净化 | despawn 实例实体（或按 `PurgeFilter` 批量） |
-| 免疫 | L1 判定系统读 `StatusImmunity` 组件；命中免疫 → `StatusResolvedMessage { applied: false }` |
-| 叠加/刷新 | 判定系统查同 `StatusId` 实例，按 `stacking` 改 `stacks` / 重置 `timer` |
-| 宿主销毁自动清理 | Bevy `ChildOf` 层级语义（并让监听器作用域化绑定到实例实体） |
-| 状态不进修饰符列表 | 状态的数值效果由 `on_apply` / `on_tick` 行为**派生** `AddModifierMessage`，状态本身不占用修饰符槽位 |
+| 独立生命周期 | 实例自己藏 `remaining`；到期 despawn 并发 `StatusExpiredEvent`（`EntityEvent`） |
+| 净化 | `PurgeStatusMessage` → despawn 实例（可只清指定状态） |
+| 免疫 | `StatusImmunity` 位图组件，判定前查；命中 → `StatusResolvedMessage { applied: false, reason: Immune }` |
+| 叠加 / 刷新 | 按 `Stacking` 改 `stacks` / 重置 `remaining`，`Stack` 受 `max_stacks` 限制 |
+| 宿主销毁自动清理 | Bevy `ChildOf` 层级语义 |
+| 每回合结算 | `tick_status_timers` 按 `StatusConfig::tick_interval` 发 `StatusTickMessage`（内容层跑 `on_tick`） |
+| 不占修饰符列表 | 数值效果由 `on_apply` / `on_tick` 行为**派生** `AddStatModifierMessage` |
 
-**统一概率框架**（`behaviors::status::contest`，物理/法术/精神底层同一套逻辑）：
+**统一概率框架**（物理 / 法术 / 精神共用一份公式，类型只决定"取哪对属性"）：
 
 ```rust
-pub trait ContestProfile { fn offense(&self) -> f32; fn defense(&self) -> f32; }  // 只负责"取哪些数值"
-pub fn contest_chance(offense: f32, defense: f32, p: &ContestParams) -> f32;      // 唯一概率公式，带上下限
-pub fn contest_duration(base: Duration, offense: f32, defense: f32, p: &ContestParams) -> Duration;
+ContestKind::scores(attacker, defender)   // 物理: 力量 vs 体质；法术: 魔力 vs 意志；精神: 机敏 vs 意志
+contest_chance(off, def, &ContestParams)  // 0.5 + slope*(off-def)/(off+def)，夹在 [min,max]
+contest_duration(base, off, def, params)  // 用同一个强度比，倍数夹在 [1, max_duration_multiplier]
 ```
 
-- `ContestKind` 只决定"用哪对攻防强度"（策略映射），**判定算法只有一份**。
-- 时长由强度差影响，且夹在 `[min, max]`，避免无限控。
+### 4.8 装配与内容（L1 `behaviors::combat`）
 
-**每回合结算**：状态计时用 `Time::delta()` 推进 `StatusTimer`（`Duration`），
-按 `StatusTickInterval`（回合步长，L2 可配）触发 `StatusTickMessage` → 内容层注册的 `on_tick` 行为
-（例如"每层每回合造成火焰伤害"→ 发 `DamageRequest`）；到期发 `StatusExpiredEvent`。
+`CombatConfig` 聚合各子域配置（内容层注入一次），`CombatPlugin` 分发并装配
+`(ProgressionPlugin, DamagePlugin, ResistancePlugin, RollsPlugin, DamagePipelinePlugin, StatusPlugin)`。
+L2 只注册 `(HealthPlugin, StatPlugin, CombatPlugin)`。
 
-> **R5 已修订（Q21 采纳 B）**：`axiom` 允许依赖 `bevy_time`，用 `Time`/`Duration`，不再自建 `BattleClock`。
-> 回合 = `StatusTickInterval` 的时间步长，测试里可用 `Time::advance_by` 精确推进，同样可复现。
-
-### 4.9 装配与内容
-
-- L1 `behaviors::combat`：`CombatConfig { rng_seed, resistance_caps, contest_params, min_damage_ratio, rounding }`
-  + `CombatPlugin`（有配置 → 满足 R41.1，不是空壳）。
-- L2 `content`：具体伤害类型的附加行为绑定、具体状态定义与行为、技能表、装备/被动数据。
-- 被动/持续效果靠**监听事件**实现（不硬编码）；监听器**作用域化**绑定到实体，
-  实体销毁即自动清理（Bevy 0.19 实体级 observer 的确切 API 名称以本地实测为准；
-  不可用时退化为"`On<Despawn>` + 显式清理"）。
+内容层（L2，后续）：具体状态的 `StatusDef`、伤害类型的附加行为表、技能表、装备 / 被动数据。
 
 ## 5. 事件流（时序）
 
-```
-L2 输入/AI ─► SkillCastMessage (behaviors::skills)
-    ├─► DamageRequest ──► [rolls] 规避/暴击 ──► [pipeline 四阶段] ──► DamageResolvedMessage
-    │                                                                  ├─► ModifyHealthMessage ─► L0 health ─► DeathEvent ─► L2 表现
-    │                                                                  └─► [damage 分派] ─► ApplyStatusRequest
-    └─► ApplyStatusRequest ──► [status 判定] ──► StatusResolvedMessage ─► L2 表现
-                                      ├─► 实例增删改（本域唯一写入口）
-                                      └─► AddModifierMessage ─► [域聚合] ─► *FinalMessage ─► L0 视图回写
+```text
+L2 输入/AI ─► SkillCastMessage (behaviors::skills，待落地)
+    ├─► DamageRequest ─► [rolls] 规避/暴击 ─► [pipeline 四阶段] ─► DamageResolvedMessage
+    │                                                              ├─► ModifyHealthMessage ─► L0 health ─► DeathEvent ─► L2
+    │                                                              └─► [damage 分派] ─► ApplyStatusRequest
+    └─► ApplyStatusRequest ─► [status 判定] ─► StatusResolvedMessage ─► L2
+                                      ├─► 实例增删改（独立子实体）
+                                      └─► on_apply/on_tick ─► AddStatModifierMessage ─► Stat::refresh（同帧）
 
-每回合：L2 AdvanceTurnMessage ─► BattleClock ─► tick_status_timers ─► StatusTickMessage / StatusExpiredEvent
-```
+成长：GainExperienceMessage ─► [Intake] 升级 ─► LevelUpMessage + GrantStatPointsMessage
+      ─► [Apply] Stat 记账 + 自己 refresh（同帧生效）
 
-**伤害与状态的关系**：先出 `DamageResolvedMessage`（伤害结算完），再**独立**发起状态判定（需求 4/6）。
-
-## 6. 模块依赖图（只允许向下）
-
-```
-behaviors::combat（配置/装配）
-  ├─► behaviors::status ──► modifiers, atoms::attribute(只读视图), rolls
-  ├─► behaviors::skills ──► damage, status
-  ├─► behaviors::damage_pipeline ──► damage, resistance
-  ├─► behaviors::rolls ──► damage
-  ├─► behaviors::resistance ──► damage（仅为按类型索引）
-  ├─► behaviors::damage ──► atoms::health（只用 ModifyHealthMessage）
-  ├─► behaviors::attributes ──► modifiers, atoms::attribute（只读 base、只回写缓存消息）
-  └─► behaviors::modifiers ──► （无内部依赖）
+属性/抵抗的任何变更（加点、装备、药水到期）都只有一条消息，组件收到后自己刷新视图。
 ```
 
-禁止：`damage → resistance`（伤害类型不认识减伤）、`damage → status`（分派只发消息）、
-`atoms::* → behaviors::*`（依赖反向，R4/R92）、任何 `behaviors::* → L2`。
+## 6. 依赖图与阶段排序
 
-## 7. 扩展手册（新增内容要改哪几处）
+```text
+atoms::stats ──► atoms::modifiers（纯算法）
+behaviors::combat（配置 / 装配）
+  ├─► status ──► rolls, atoms::stats(只读视图), atoms::modifiers(派生修饰符)
+  ├─► damage_pipeline ──► damage, resistance, atoms::health(ModifyHealthMessage), atoms::modifiers(Rounding)
+  ├─► rolls ──► damage, resistance(读 evasion)
+  ├─► damage ──► （只 dep 自己的类型；分派只发消息）
+  ├─► resistance ──► damage（按类型索引）+ atoms::modifiers
+  └─► progression ──► atoms::stats
+```
 
-| 新增 | 改动点 | 兜底报错 |
+禁止：`damage → resistance`（伤害类型不认识减伤）、`atoms::* → behaviors::*`（R4/R92）、任何 `behaviors::* → L2`。
+
+**阶段排序契约**（跨模块顺序不靠运气）：
+
+| 阶段集合 | 顺序 | 归属 |
 |---|---|---|
-| 属性 | `atoms/attribute/defs.rs` 加一行 | `COUNT`/`ALL`/`name` 自动；别处穷尽 `match` 编译期报错 |
-| 资源 | `atoms/resource/defs.rs` 加一行 + L1 上限映射规则加一条 | 同上 |
-| 伤害类型 | `behaviors/damage/defs.rs` 加一行 | 抵抗数组自动扩列；表现层 `match` 编译期报错 |
-| 伤害附加行为 | L2 内容注册表加一条 | 注册表 `build()` 覆盖检查 → 启动期报错 |
-| 状态 | 定义宏加一行 + L2 注册一条 `StatusDef`（含三个行为） | `StatusRegistry::build()` → 启动期报错 |
-| 技能 | L2 数据表加一条；新效果类型加一个 `SkillEffect` 变体 | 穷尽 `match` 编译期报错（数据与执行分离） |
-| 被动/装备效果 | 注册 `Modifier` 数据 + 作用域化监听器 | 宿主销毁 → 监听自动清理 |
+| `StatStage` | `Intake → Apply` | `atoms::stats` 定义；L1 成长插 `Intake`，L0 变更占 `Apply` |
+| `DamageStage` | `Base → AttackerBonus → DefenderMitigation → Finalize` | `behaviors::damage_pipeline` 定义；判定层用 `.before(Base)` |
 
-## 8. 现状差距（本仓库已有代码）
+## 7. 扩展手册
 
-| 现状 | 问题 | 本设计的处理 |
+| 新增 | 改动点 | 兜底 |
 |---|---|---|
-| `atoms/attribute.rs` 把 Buff 重算写在 L0（查询 `Children` + `Buff`） | 违反 R8「L0 只查自己」、R11「多组件逻辑归 L1」 | 重算迁到 L1 `behaviors::attributes`；L0 只留数据 + `apply_attribute_final` |
-| 同上文件 `dirty.write/read` 引用了未定义的 `AttributesDirty`，`recompute_final_attributes_system` 也无该参数 | **当前无法编译** | 落地 M2 时一并修掉（见 [TODO](../work/TODO.md)） |
-| `Attributes` 用结构体字段逐个列出 | 加一个属性要改 6 处 | 换成 `voxelith_defs!` + `[f32; COUNT]` 数组 |
-| `Health` 字段 `pub`（Q2）+ 无资源池概念 | L2 可直接写、法力/耐力无处安放 | Q18：收编为 `ResourceId::Life`，字段私有 + 只读访问器 |
-| 时间用 `f32` / 混用 `Duration`（Q11） | 长局精度、口径不一 | 时长统一 `Duration`，节奏用 `BattleClock` 回合数 |
+| 属性 | `atoms/stats/stat.rs`：`StatId` 变体 + `StatBlock` 字段 + `StatModifiers` 槽位 + `refresh` 一行 | `get` / `set` / `name` 的穷尽 `match` 编译期报错；聚合漏改靠测试 |
+| 伤害类型 | `behaviors/damage.rs`：枚举 + `COUNT` / `ALL` / `index` / `name` | 抵抗表列宽与表现映射编译期报错 |
+| 伤害附加行为 | 给该类型 `bind(...)`，或 `declare_no_behaviors(..)` | `build()` 覆盖检查 → 启动期报错 |
+| 状态 | `behaviors/status/mod.rs`：枚举 + 辅助项 + 内容层注册 `StatusDef` | `StatusRegistry::build()` → 启动期报错 |
+| 技能 | 内容数据表加一条 + 新效果类型加一个变体 | 穷尽 `match` 编译期报错（数据与执行分离） |
+| 被动 / 装备效果 | 发 `AddStatModifierMessage` / `AddResistanceModifierMessage`（带 `ModifierSource`） | 按来源整体移除 = 卸下 / 失效 / 到期统一清理 |
+| 调参 | 改对应 `XxxConfig`（或内容层从文件加载后注入） | 代码里不留魔法数 |
 
-## 9. 待确认（细节见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md)）
+## 8. 落地状态
 
-| 编号 | 问题 | 我的建议 |
+**已完成（有测试，共 73 条）**
+
+- `atoms::modifiers`：固定顺序聚合 + 上限 + `Rounding` + 临时修饰符寿命（纯数据 + 纯算法）。
+- `atoms::stats`：`StatId` / `StatBlock` / `StatModifiers` / **自成一体**的 `Stat`（五条变更系统 + 结果广播），
+  `Level` / `LevelConfig` / `LevelCurve`。
+- `behaviors::progression`：经验 → 升级 → 发点数（`Intake` 阶段，同帧可见）。
+- `behaviors::damage`：伤害类型 + 标签 + 注册表（覆盖检查）+ 分派接口。
+- `behaviors::resistance`：自成整体的 `Resistance` + `mitigate` 公式 + 上限 / 保底 + 临时修饰符。
+- `behaviors::rolls`：SplitMix64 + 种子化 `CombatRng` + 规避 / 暴击判定。
+- `behaviors::damage_pipeline`：四阶段 + `DamageResolvedMessage` + 转发 `ModifyHealthMessage`。
+- `behaviors::status`：标识 / 定义 / 注册表 / 组件 / 免疫 / 叠加 / 净化 / 计时 / 判定（含 `contest_*` 公式）。
+- `behaviors::combat`：`CombatConfig` 汇总 + 分发 + 装配。
+
+**留了接口（`TODO(M5)`）**
+
+- `stage_attacker_bonus` 的属性缩放与增伤规则表（需要技能 / 装备数据）。
+- `dispatch_damage_behaviors` 的 `DamageBehaviorId → 请求消息` 映射（需要内容层行为表）。
+- L2 的 `content`（状态定义、附加行为绑定、技能表）与 `presentation`（表现监听）。
+
+**历史取舍**
+
+| 曾有过 | 最终决定 |
+|---|---|
+| `voxelith_defs!` 宏 + 每个域一个 `defs.rs` | **删掉**：枚举的辅助项写在枚举旁边；定义并进组件文件，不再有 `defs.rs` |
+| `Stat` 用 `[u32; COUNT]` 数组 + `Index` / `IndexMut` | **显式字段**：`stat.strength` 直接读，参数化才用 `StatId`；没有 `IndexMut` |
+| L1 算最终值 → `StatFinalMessage` 回写 L0 | **组件自成一体**：`Stat` 持有修饰符槽位，收到变更消息自己 `refresh`，
+  没有回写消息与脏标记 |
+
+## 9. 已拍板 / 待确认
+
+| 编号 | 问题 | 结论 |
 |---|---|---|
-| Q17 | `behaviors::combat` 是"配置 + 装配器"还是不存在（各域 Plugin 直接进 tuple） | 保留：它有 `CombatConfig`，满足 R41.1 |
-| Q18 | `Health` 是否收编为 `ResourceId::Life`（影响 R56 与既有测试） | ✅ **已确认采纳 C（推迟）**：保留 `Health`，资源池等有需求再做 |
-| Q19 | 属性最终值回写模式：L1 发 `AttributeFinalMessage`（推荐）还是允许 L1 直写缓存 | 发消息（守 R13） |
-| Q20 | 状态实例载体：独立子实体（推荐）vs 宿主组件数组 | 子实体（清理/净化/作用域天然） |
-| Q21 | 时钟与时间：`bevy_time` 的 `Time`/`Duration`（推荐）vs 自建 `BattleClock` | ✅ **已确认采纳 B**：R5 放宽，用 `bevy_time` |
-| Q22 | 命名：共享宏模块 `defs`、判定层 `behaviors::rolls`（备选 `resolution`/`chance`） | 先按 `defs` / `rolls` |
+| Q17 | `behaviors::combat` 定位 | ✅ 采纳 A：配置 + 装配（非空壳） |
+| Q18 | 资源池（法力 / 耐力） | ✅ 采纳 C：推迟，保留 `Health` |
+| Q19 | 属性最终值回写模式 | ✅ 采纳 A 后**再修订**：组件自成一体，内部 `refresh`（见 §8 历史取舍） |
+| Q20 | 状态实例载体 | ✅ 采纳 A：独立子实体 + `ChildOf` |
+| Q21 | 时钟与时间表示 | ✅ 采纳 B：`axiom` 允许 `bevy_time` |
+| Q22 | 命名（宏模块 `defs`、判定层 `rolls`） | ✅ 判定层 `rolls` 落地；`defs` 模块**已删除** |
+| Q23 | R5 白名单范围 | ✅ 采纳 A：bevy 家族严格白名单 + 非 bevy 依赖登记制 |
+| Q24 | stats 取代 attribute | ✅ 采纳 A：迁移完成（`Stat` 保留） |
+| Q25 | `u32` 与百分比修饰符取整口径 | ✅ 采纳 A：只在最后取整一次，`Rounding` 可配 |
 
-## 10. 里程碑与验收
+## 10. 里程碑
 
-| # | 内容 | 验收（关键断言） |
+| # | 内容 | 状态 |
 |---|---|---|
-| ✅ M1 | `defs.rs` 宏（各域注册表 `build()` 覆盖校验随后续域落地） | 已落地：`src/defs.rs` 单测；`AttributeId` 已改用宏 |
-| ✅ M2 | `atoms::attribute` 重构为 L0 纯数据 + 唯一写入口 | 已落地：`atoms/attribute/{defs,systems,mod}.rs`；L0 内无多组件查询 |
-| ✅ M3 | `behaviors::modifiers` + `behaviors::attributes` | 已落地：`tests/attribute.rs` 11 条 + 模块内 8 条；无脏消息不重算 |
-| M4 | ~~`atoms::resource`（含 Q18 决策）+ 属性→上限映射~~ **已推迟（Q18）** | 等法力/耐力有真实需求时再做 |
-| M5 | `behaviors::{damage, resistance, rolls, damage_pipeline}` | 同种子同输入结果一致；规避不进管线；减伤不透支上限 |
-| M6 | `behaviors::status` + `BattleClock` | 免疫/叠加/刷新/净化/到期五条用例；状态判定在伤害之后 |
-| M7 | L2 内容与表现接线 | 表现只读 `DamageResolvedMessage` / `StatusResolvedMessage`，无公式 |
+| M1 | 定义工具（宏） | 已废弃（改为枚举自带辅助项） |
+| M2 | `atoms::stats`（`Stat` 自成一体 + 变更系统 + 阶段契约） | ✅ |
+| M3 | `atoms::modifiers`（聚合 + 上限 + 临时寿命） | ✅ |
+| M4 | 资源池（法力 / 耐力） | 推迟（Q18） |
+| M5 | 伤害链路（damage / resistance / rolls / pipeline） | ✅ 骨架 + 关键公式；规则表待内容层 |
+| M6 | 状态（定义 / 判定 / 生命周期 / 免疫 / 净化 / 叠加） | ✅ 骨架 + 判定；`on_*` 行为表待内容层 |
+| M7 | L2 内容与表现接线 | 待做（`content` + `presentation`） |
 
 ## 11. 自检清单
 
-- [ ] 新增一项（属性/资源/伤害类型/状态）是否只改一处？
-- [ ] 遗漏定义是在**编译期**还是**加载期**报错？（不能是"运行到才发现"）
-- [ ] L1 有没有直接写 L0 组件？（应该发消息）
+- [ ] 新增一项（属性 / 伤害类型 / 状态）是否只改一处？漏改会编译期叫吗？
+- [ ] 最终值是不是由**拥有数据的组件自己**刷新的？有没有多余的"脏了 / 算好了"消息？
 - [ ] 管线里有没有 `Modifier` / `StatusInstance` / RNG？（I3、I4）
-- [ ] 每个组件的写入口是否唯一？
+- [ ] 每个组件的写入口是否唯一？外部只能读吗？
 - [ ] 伤害类型是否仍然不认识减伤与状态判定？
 - [ ] 状态的数值效果是否通过"派生的修饰符"而不是塞进修饰符列表？
-- [ ] 监听器是否作用域化，实体销毁能自动清理？
+- [ ] 新参数是否进了某个 `XxxConfig` Resource，而不是写成常量？
 - [ ] 单文件是否 < 500 行（R26）？

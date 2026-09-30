@@ -216,8 +216,10 @@ else {
     $tomlText = Get-Content -LiteralPath $axiomToml -Raw
     $hits = @()
 
-    # R5（Q21 修订）：axiom 的依赖必须在白名单内；完整 bevy、渲染 crate、调试设施都自动落网。
-    $allowed = @('bevy_ecs', 'bevy_app', 'bevy_reflect', 'bevy_time')
+    # R5（Q21 / Q23 修订）：bevy 家族严格白名单；非 bevy 工具 crate 走"登记制"——
+    # 先登记进 docs/architecture.md 的表，再改 Cargo.toml，否则这里直接报未登记。
+    $bevyAllowed = @('bevy_ecs', 'bevy_app', 'bevy_reflect', 'bevy_time')
+    $registered = @('exn', 'derive_more')
     $inDependencies = $false
     foreach ($line in ($tomlText -split "`n")) {
         $trimmed = $line.Trim()
@@ -228,8 +230,12 @@ else {
         if (-not $inDependencies -or -not $trimmed -or $trimmed.StartsWith('#')) { continue }
         if ($trimmed -match '^([A-Za-z0-9_\-]+)\s*=') {
             $depName = $matches[1]
-            if ($allowed -notcontains $depName) {
-                $hits += "依赖白名单外：$depName（R5 只允许 $($allowed -join ' / ')）"
+            if ($bevyAllowed -contains $depName -or $registered -contains $depName) { continue }
+            if ($depName -like 'bevy*') {
+                $hits += "bevy 家族白名单外：$depName（只允许 $($bevyAllowed -join ' / ')）"
+            }
+            else {
+                $hits += "未登记的第三方依赖：$depName（先在 docs/architecture.md 的登记表里登记，再改 Cargo.toml）"
             }
         }
     }
@@ -240,7 +246,7 @@ else {
             $hits += "发现调试设施依赖 `$forbidden`（属 L2，禁止进 axiom）"
         }
     }
-    $r5Name = "voxelith-axiom 依赖白名单（$($allowed -join '/')）"
+    $r5Name = 'voxelith-axiom 依赖（bevy 白名单 + 非 bevy 登记制）'
     if ($hits) {
         Add-Result 'R5' $r5Name $false ($hits -join "`n")
     }

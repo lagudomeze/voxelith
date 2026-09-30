@@ -104,3 +104,17 @@ L0 的典型成员：`Health`、`Lifetime`（R61、R63）、纯数值事件定�
 - 测试放 `crates/voxelith-axiom/tests/`（集成测试）或模块内 `#[cfg(test)]`（需要访问私有字段时）。
 - 需要断言"没有消息就不重算"这类**私有状态**（如缓存版本号）时，用模块内单测；
   行为契约（数值结果）一律写集成测试，顺便固化 Message/Event 用法。
+
+## 9. 配置与数据约定（I6）
+
+- **所有可调参数都放 Resource**（`XxxConfig`），不写死在系统里：`StatConfig`、`ModifierCaps`、
+  `ResistanceCaps`、`PipelineConfig`、`RollConfig`、`StatusConfig`、`ContestParams`、`LevelConfig`。
+- 各 L1 域的配置由内容层聚成一份 `CombatConfig` 注入，`CombatPlugin` 分发到子域；
+  子域自己的 `init_resource` 只在"独立使用 / 单测"时兜底（`insert_resource` 先执行时不会被覆盖）。
+- **L0/L1 不读文件、不碰 `AssetServer`**（R101 精神）：文件加载与反序列化都在 L2，
+  读完把值塞进 Resource。这样 L0/L1 仍然能在无渲染、无文件系统的环境里跑测试。
+- 事件定义在**发出它的模块**（R33）；但**改 L0 数据的入口消息定义在 L0**（如 `ModifyHealthMessage`、
+  `GrantStatPointsMessage`），由 L1/L2 发出——契约属于数据的拥有者。
+- **组件自成一体**：如果最终值只依赖组件自己的字段（`Stat`、`Resistance`），就让组件在收到变更消息后
+  **自己刷新缓存**，不要造"脏了 / 算好了"的来回消息。只有"必须别的组件同时在场才能算"的部分才放 L1。
+  判断标准很简单：**公式需要的信息如果都在这个组件里，它就不需要跨层**（R8 自然成立）。

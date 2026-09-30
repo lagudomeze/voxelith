@@ -19,7 +19,7 @@ pwsh ./scripts/arch-guard.ps1
 | 3 | R91 | `cargo tree -p voxelith-axiom` 不含 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr` | L0/L1 被渲染 crate 污染 |
 | 4 | R92 | `cargo tree -p voxelith-axiom` 不含 `voxelith-prime` | 反向依赖，依赖方向被破坏 |
 | 5 | R93 | `tokei --sort code`，无文件 > 500 行 | 需要拆分文件（R26） |
-| 6 | R5/R95 | `voxelith-axiom/Cargo.toml` 的依赖必须在白名单内（`bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`），且不含调试设施 | 用了完整 Bevy、渲染 crate，或白名单外的依赖；调试设施下沉到 L0/L1 |
+| 6 | R5/R95 | `voxelith-axiom/Cargo.toml`：bevy 家族必须在白名单内（`bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`）；非 bevy 依赖必须已在 [architecture.md](architecture.md) 的登记表里 | 用了完整 Bevy、渲染 crate，或白名单/登记表之外的依赖；调试设施下沉到 L0/L1 |
 | 7 | R95 | 两个 crate 的 `lib.rs`/`main.rs` 顶部含规则注释 | 新 crate 忘记写规则注释 |
 | 8 | R21/R96 | 源码中不出现 `mod base` / `common` / `utils` / `helpers` | 违规模块名 |
 | 9 | R104 | 源码中不出现 `scense` | 违规拼写 |
