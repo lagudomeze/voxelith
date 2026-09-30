@@ -14,7 +14,6 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
 use crate::atoms::health::ModifyHealthMessage;
-use crate::atoms::modifiers::Rounding;
 use crate::behaviors::damage::{DamageRequest, DamageResolvedMessage};
 use crate::behaviors::resistance::{Resistance, ResistanceCaps, mitigate};
 
@@ -34,8 +33,6 @@ pub enum DamageStage {
 /// 管线配置（**Resource**：内容层 / 文件注入）。
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct PipelineConfig {
-    /// 最终伤害的取整口径。
-    pub rounding: Rounding,
     /// 暴击倍率（判定层打上 `crit` 后在这里生效）。
     pub crit_multiplier: f32,
 }
@@ -43,7 +40,6 @@ pub struct PipelineConfig {
 impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            rounding: Rounding::Floor,
             crit_multiplier: 2.0,
         }
     }
@@ -103,15 +99,11 @@ pub fn stage_defender_mitigation(
 /// 阶段四：上限与最终值 → 发 [`DamageResolvedMessage`]（管线的唯一输出）。
 pub fn stage_finalize(
     mut requests: MessageMutator<DamageRequest>,
-    config: Res<PipelineConfig>,
+    _config: Res<PipelineConfig>,
     mut resolved: MessageWriter<DamageResolvedMessage>,
 ) {
     for request in requests.read() {
-        let amount = if request.missed {
-            0
-        } else {
-            config.rounding.apply(request.amount)
-        };
+        let amount = if request.missed { 0.0 } else { request.amount };
         resolved.write(DamageResolvedMessage {
             source: request.source,
             target: request.target,
@@ -131,7 +123,7 @@ pub fn forward_resolved_damage(
     mut out: MessageWriter<ModifyHealthMessage>,
 ) {
     for message in resolved.read() {
-        if message.amount == 0 {
+        if message.amount == 0.0 {
             continue;
         }
         out.write(ModifyHealthMessage {

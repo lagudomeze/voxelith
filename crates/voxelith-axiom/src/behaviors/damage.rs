@@ -131,7 +131,7 @@ impl DamageRequest {
 ///
 /// 表现层（L2）与附加行为分派都监听它；被规避的伤害也会发一条 `amount = 0` 的记录，
 /// 让表现能演"闪避"（见 `docs/OPEN-QUESTIONS.md` Q9）。
-#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct DamageResolvedMessage {
     /// 伤害来源。
     pub source: Entity,
@@ -140,7 +140,7 @@ pub struct DamageResolvedMessage {
     /// 伤害类型。
     pub damage_type: DamageType,
     /// 最终伤害（已按 [`crate::atoms::modifiers::Rounding`] 取整）。
-    pub amount: u32,
+    pub amount: f32,
     /// 是否被规避。
     pub missed: bool,
     /// 是否暴击。

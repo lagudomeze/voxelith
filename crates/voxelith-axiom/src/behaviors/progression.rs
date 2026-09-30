@@ -25,14 +25,14 @@ pub struct GainExperienceMessage {
 }
 
 /// 升级通知（广播给 UI / 表现 / 成就系统）。
-#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct LevelUpMessage {
     /// 目标实体。
     pub entity: Entity,
     /// 升级后的等级。
     pub new_level: u32,
     /// 本次发放的可分配点数（可能跨多级）。
-    pub points_granted: u32,
+    pub points_granted: f32,
 }
 
 /// 消费经验：升级 → 广播 [`LevelUpMessage`] → 发 [`GrantStatPointsMessage`]。
@@ -56,7 +56,7 @@ pub fn apply_experience_gain(
         }
 
         // 用 `LevelCurve` 的方法读配置（字段与方法同名，UFCS 避免歧义）。
-        let points_granted = gained_levels * LevelCurve::points_per_level(&*config);
+        let points_granted = LevelCurve::points_per_level(&*config) * gained_levels as f32;
 
         if stat.is_some() {
             grants.write(GrantStatPointsMessage {

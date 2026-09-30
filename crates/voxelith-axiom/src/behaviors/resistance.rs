@@ -14,8 +14,9 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_time::Time;
 
-use crate::atoms::modifiers::{Modifier, ModifierCaps, ModifierSet, ModifierSource, evaluate};
+use crate::atoms::{Modifier, ModifierCaps, ModifierSet};
 use crate::behaviors::damage::DamageType;
+use crate::utils::Key;
 
 /// 单类型抵抗值：先扣 `flat`，再按 `percent` 打折。
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -139,17 +140,13 @@ impl Resistance {
     }
 
     /// 加一条修饰符。
-    pub(crate) fn add_modifier(&mut self, slot: ResistSlot, modifier: Modifier) {
-        self.modifiers.slot_mut(slot).add(modifier);
+    pub(crate) fn insert_modifier(&mut self, slot: ResistSlot, modifier: Modifier) -> Key {
+        self.modifiers.slot_mut(slot).insert(modifier)
     }
 
     /// 按来源移除修饰符；返回是否真的移除了。
-    pub(crate) fn remove_modifiers_by_source(&mut self, source: ModifierSource) -> bool {
-        let mut removed = false;
-        for slot in self.modifiers.slots_mut() {
-            removed |= slot.remove_by_source(source);
-        }
-        removed
+    pub(crate) fn remove_modifier(&mut self, slot: ResistSlot, key: Key) -> bool {
+        self.modifiers.slot_mut(slot).remove(key).is_some()
     }
 
     /// 推进临时修饰符寿命；返回是否有修饰符到期。

@@ -16,14 +16,10 @@
 //! 要看账本用 `base()` / `allocated()` / `unspent_points()` / `modifiers()`。
 
 use core::ops::Deref;
-use core::time::Duration;
 
+use crate::utils::{Key, SlotVec};
 use bevy_ecs::prelude::*;
 use exn::{ErrorExt, Result};
-
-use crate::atoms::modifiers::{
-    Modifier, ModifierCaps, ModifierSet, ModifierSource, Rounding, evaluate,
-};
 
 /// 属性标识：需要参数化访问时用它（UI、配置、日志、修饰符目标）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,25 +56,25 @@ impl StatId {
 ///
 /// 字段公开只为**方便读**（`block.strength`）；`set` / `add` / `append` / `reset` 都是
 /// `pub(crate)`，改值集中在 [`Stat`]，也没有 `IndexMut`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct StatBlock {
     /// 力量。
-    pub strength: u32,
+    pub strength: f32,
     /// 敏捷。
-    pub dexterity: u32,
+    pub dexterity: f32,
     /// 体质。
-    pub constitution: u32,
+    pub constitution: f32,
     /// 魔力。
-    pub magic: u32,
+    pub magic: f32,
     /// 意志。
-    pub willpower: u32,
+    pub willpower: f32,
     /// 机敏。
-    pub cunning: u32,
+    pub cunning: f32,
 }
 
 impl StatBlock {
     /// 所有属性取同一个默认值（初始属性用）。
-    pub const fn new(default_value: u32) -> Self {
+    pub const fn new(default_value: f32) -> Self {
         Self {
             strength: default_value,
             dexterity: default_value,
@@ -90,7 +86,7 @@ impl StatBlock {
     }
 
     /// 按标识取值（参数化访问的入口）。
-    pub fn get(&self, id: StatId) -> u32 {
+    pub fn get(&self, id: StatId) -> f32 {
         match id {
             StatId::Strength => self.strength,
             StatId::Dexterity => self.dexterity,
@@ -102,7 +98,7 @@ impl StatBlock {
     }
 
     /// 按标识写值（crate 内部）。
-    pub(crate) fn set(&mut self, id: StatId, value: u32) {
+    pub(crate) fn set(&mut self, id: StatId, value: f32) {
         match id {
             StatId::Strength => self.strength = value,
             StatId::Dexterity => self.dexterity = value,
@@ -114,7 +110,7 @@ impl StatBlock {
     }
 
     /// 按标识加减（crate 内部）。
-    pub(crate) fn add(&mut self, id: StatId, value: u32) {
+    pub(crate) fn add(&mut self, id: StatId, value: f32) {
         self.set(id, self.get(id) + value);
     }
 
@@ -129,7 +125,7 @@ impl StatBlock {
     }
 
     /// 全部属性之和（洗点退款等汇总）。
-    pub fn total(&self) -> u32 {
+    pub fn total(&self) -> f32 {
         self.strength
             + self.dexterity
             + self.constitution
@@ -139,12 +135,60 @@ impl StatBlock {
     }
 
     /// 全部清零，返回清零前的总和（crate 内部：洗点退款）。
-    pub(crate) fn reset(&mut self) -> u32 {
+    pub(crate) fn reset(&mut self) -> f32 {
         let total = self.total();
         *self = Self::default();
         total
     }
 }
+
+/// 修饰符的运算种类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModifierOp {
+    /// 加法：最先结算。
+    Flat,
+    /// 百分比加法：合并后统一乘一次（不是复利）。
+    PercentAdd,
+    /// 百分比乘法：各自独立相乘，最后结算。
+    PercentMul,
+}
+
+/// 一条修饰符。**不含"修饰谁"**：目标由它所在的槽位决定。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Modifier {
+    /// 运算种类。
+    pub op: ModifierOp,
+    /// 数值（`percent_*` 用小数：`0.1` = +10%）。
+    pub value: f32,
+}
+
+impl Modifier {
+    /// 加法修饰符。
+    pub fn flat(value: f32) -> Self {
+        Self {
+            op: ModifierOp::Flat,
+            value,
+        }
+    }
+
+    /// 百分比加法修饰符。
+    pub fn percent_add(value: f32) -> Self {
+        Self {
+            op: ModifierOp::PercentAdd,
+            value,
+        }
+    }
+
+    /// 百分比乘法修饰符。
+    pub fn percent_mul(value: f32) -> Self {
+        Self {
+            op: ModifierOp::PercentMul,
+            value,
+        }
+    }
+}
+
+pub type ModifierSet = SlotVec<Modifier>;
 
 /// 属性修饰符槽位：每个属性一组。
 ///
@@ -163,6 +207,50 @@ pub struct StatModifiers {
     pub willpower: ModifierSet,
     /// 机敏槽位。
     pub cunning: ModifierSet,
+}
+
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct ModifierCaps {
+    /// `Σpercent_add` 的下限。
+    pub percent_add_min: f32,
+    /// `Σpercent_add` 的上限。
+    pub percent_add_max: f32,
+    /// `Σpercent_mul` 的下限。
+    pub percent_mul_min: f32,
+    /// `Σpercent_mul` 的上限。
+    pub percent_mul_max: f32,
+}
+
+impl Default for ModifierCaps {
+    fn default() -> Self {
+        Self {
+            percent_add_min: 0.01,
+            percent_add_max: 0.98,
+            percent_mul_min: 0.01,
+            percent_mul_max: 0.98,
+        }
+    }
+}
+
+impl ModifierCaps {
+    pub fn evaluate(&self, base: f32, modifiers: &ModifierSet) -> f32 {
+        let mut flat = 0.0;
+        let mut percent_add = 0.0;
+        let mut percent_mul = 1.0;
+
+        for modifier in modifiers.iter() {
+            match modifier.op {
+                ModifierOp::Flat => flat += modifier.value,
+                ModifierOp::PercentAdd => percent_add += modifier.value,
+                ModifierOp::PercentMul => percent_mul *= 1.0 + modifier.value,
+            }
+        }
+
+        let percent_add = percent_add.clamp(self.percent_add_min, self.percent_add_max);
+        let percent_mul = percent_mul.clamp(self.percent_mul_min, self.percent_mul_max);
+
+        (base + flat) * (1.0 + percent_add) * percent_mul
+    }
 }
 
 impl StatModifiers {
@@ -231,20 +319,20 @@ impl StatModifiers {
 }
 
 /// 属性操作的结构化错误：UI 直接照它决定提示文案。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, derive_more::Display, derive_more::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, derive_more::Display, derive_more::Error)]
 pub enum StatError {
     /// 未分配点数不足。
     #[display("not enough points: required {required}, have {available}")]
     NotEnoughPoints {
         /// 本次需要的点数。
-        required: u32,
+        required: f32,
         /// 当前可用点数。
-        available: u32,
+        available: f32,
     },
 }
 
 /// 默认初始属性（内容层可用 `Stat::from_base` 覆盖）。
-pub const DEFAULT_STAT: u32 = 10;
+pub const DEFAULT_STAT: f32 = 10.0;
 
 /// 角色属性（组件，自成一体）。
 #[derive(Component, Debug, Clone)]
@@ -253,12 +341,12 @@ pub struct Stat {
     allocated: StatBlock,
     modifiers: StatModifiers,
     cached: StatBlock,
-    unspent_points: u32,
+    unspent_points: f32,
 }
 
 impl Stat {
     /// 用同一个初始值构造（`Stat::new(10)` = 六项全 10）。
-    pub fn new(default_value: u32) -> Self {
+    pub fn new(default_value: f32) -> Self {
         Self::from_base(StatBlock::new(default_value))
     }
 
@@ -269,7 +357,7 @@ impl Stat {
             allocated: StatBlock::default(),
             modifiers: StatModifiers::default(),
             cached: base,
-            unspent_points: 0,
+            unspent_points: 0.0,
         }
     }
 
@@ -289,17 +377,17 @@ impl Stat {
     }
 
     /// 未分配点数。
-    pub fn unspent_points(&self) -> u32 {
+    pub fn unspent_points(&self) -> f32 {
         self.unspent_points
     }
 
     /// 发放可分配点数（升级 / 任务奖励）。
-    pub(crate) fn add_points(&mut self, amount: u32) {
+    pub(crate) fn add_points(&mut self, amount: f32) {
         self.unspent_points += amount;
     }
 
     /// 加点：从 `unspent_points` 扣并记进 `allocated`；不足则**整条失败**（不部分生效）。
-    pub(crate) fn allocate(&mut self, id: StatId, amount: u32) -> Result<(), StatError> {
+    pub(crate) fn allocate(&mut self, id: StatId, amount: f32) -> Result<(), StatError> {
         if self.unspent_points < amount {
             return Err(StatError::NotEnoughPoints {
                 required: amount,
@@ -313,62 +401,39 @@ impl Stat {
     }
 
     /// 洗点：退掉 `allocated`（含成长的分配），返回退回的点数。
-    pub(crate) fn respec(&mut self) -> u32 {
+    pub(crate) fn respec(&mut self) -> f32 {
         let refunded = self.allocated.reset();
         self.unspent_points += refunded;
         refunded
     }
 
     /// 加一条修饰符。
-    pub(crate) fn add_modifier(&mut self, id: StatId, modifier: Modifier) {
-        self.modifiers.slot_mut(id).add(modifier);
+    pub(crate) fn add_modifier(&mut self, id: StatId, modifier: Modifier) -> Key {
+        self.modifiers.slot_mut(id).insert(modifier)
     }
 
     /// 按来源移除修饰符；返回是否真的移除了。
-    pub(crate) fn remove_modifiers_by_source(&mut self, source: ModifierSource) -> bool {
-        let mut removed = false;
-        for slot in self.modifiers.slots_mut() {
-            removed |= slot.remove_by_source(source);
-        }
-        removed
-    }
-
-    /// 推进临时修饰符寿命；返回是否有修饰符到期。
-    pub(crate) fn tick_modifiers(&mut self, delta: Duration) -> bool {
-        let mut expired = false;
-        for slot in self.modifiers.slots_mut() {
-            expired |= slot.tick(delta);
-        }
-        expired
+    pub(crate) fn remove_modifier(&mut self, id: StatId, key: Key) -> Option<Modifier> {
+        self.modifiers.slot_mut(id).remove(key)
     }
 
     /// **刷新最终值视图**：`(base + allocated) 经修饰符聚合 → 取整`。
     ///
     /// 由各条变更消息的处理系统在改完账本 / 修饰符后调用，所以 `cached` 永远是新的，
     /// 读方（伤害管线、UI）只需 `Deref`。
-    pub(crate) fn refresh(&mut self, rounding: Rounding, caps: &ModifierCaps) {
-        let mut raw = self.base;
-        raw.append(&self.allocated);
-        self.cached = StatBlock {
-            strength: rounded(&raw, &self.modifiers, StatId::Strength, rounding, caps),
-            dexterity: rounded(&raw, &self.modifiers, StatId::Dexterity, rounding, caps),
-            constitution: rounded(&raw, &self.modifiers, StatId::Constitution, rounding, caps),
-            magic: rounded(&raw, &self.modifiers, StatId::Magic, rounding, caps),
-            willpower: rounded(&raw, &self.modifiers, StatId::Willpower, rounding, caps),
-            cunning: rounded(&raw, &self.modifiers, StatId::Cunning, rounding, caps),
-        };
-    }
-}
+    pub(crate) fn refresh(&mut self, caps: &ModifierCaps) {
+        self.cached.reset();
+        self.cached.append(&self.base);
+        self.cached.append(&self.allocated);
 
-/// 单个属性的公式：聚合修饰符后按配置取整。
-fn rounded(
-    raw: &StatBlock,
-    modifiers: &StatModifiers,
-    id: StatId,
-    rounding: Rounding,
-    caps: &ModifierCaps,
-) -> u32 {
-    rounding.apply(evaluate(raw.get(id) as f32, modifiers.slot(id), caps))
+        self.cached.strength = caps.evaluate(self.base.strength, &self.modifiers.strength);
+        self.cached.dexterity = caps.evaluate(self.base.dexterity, &self.modifiers.dexterity);
+        self.cached.constitution =
+            caps.evaluate(self.base.constitution, &self.modifiers.constitution);
+        self.cached.magic = caps.evaluate(self.base.magic, &self.modifiers.magic);
+        self.cached.willpower = caps.evaluate(self.base.willpower, &self.modifiers.willpower);
+        self.cached.cunning = caps.evaluate(self.base.cunning, &self.modifiers.cunning);
+    }
 }
 
 impl Default for Stat {
@@ -394,11 +459,6 @@ mod tests {
         ModifierCaps::default()
     }
 
-    /// 真实生成来源实体，避免依赖 `Entity` 的内部构造 API。
-    fn source(world: &mut World) -> ModifierSource {
-        ModifierSource::new(world.spawn_empty().id())
-    }
-
     #[test]
     fn fresh_stat_reads_its_base_through_deref() {
         let stat = Stat::new(DEFAULT_STAT);
@@ -408,74 +468,65 @@ mod tests {
 
     #[test]
     fn allocate_moves_points_from_unspent_into_allocated() {
-        let mut stat = Stat::new(0);
-        assert!(stat.allocate(StatId::Strength, 10).is_err());
+        let mut stat = Stat::new(0.0);
+        assert!(stat.allocate(StatId::Strength, 10.0).is_err());
 
-        stat.add_points(20);
-        assert!(stat.allocate(StatId::Strength, 10).is_ok());
-        assert_eq!(stat.unspent_points(), 10);
-        assert_eq!(stat.allocated().get(StatId::Strength), 10);
+        stat.add_points(20.0);
+        assert!(stat.allocate(StatId::Strength, 10.0).is_ok());
+        assert_eq!(stat.unspent_points(), 10.0);
+        assert_eq!(stat.allocated().get(StatId::Strength), 10.0);
 
-        assert!(stat.allocate(StatId::Cunning, 10).is_ok());
-        assert_eq!(stat.unspent_points(), 0);
+        assert!(stat.allocate(StatId::Cunning, 10.0).is_ok());
+        assert_eq!(stat.unspent_points(), 0.0);
     }
 
     #[test]
     fn respec_refunds_allocated_and_keeps_base() {
-        let mut stat = Stat::from_base(StatBlock::new(10));
-        stat.add_points(5);
-        stat.allocate(StatId::Strength, 3).unwrap();
-        assert_eq!(stat.respec(), 3);
-        assert_eq!(stat.unspent_points(), 5);
-        assert_eq!(stat.base().get(StatId::Strength), 10, "初始值不动");
-        assert_eq!(stat.allocated().total(), 0);
+        let mut stat = Stat::from_base(StatBlock::new(10.0));
+        stat.add_points(5.0);
+        stat.allocate(StatId::Strength, 3.0).unwrap();
+        assert_eq!(stat.respec(), 3.0);
+        assert_eq!(stat.unspent_points(), 5.0);
+        assert_eq!(stat.base().get(StatId::Strength), 10.0, "初始值不动");
+        assert_eq!(stat.allocated().total(), 0.0);
     }
 
     #[test]
     fn refresh_applies_allocated_then_modifiers() {
-        let mut world = World::new();
-        let bonus = source(&mut world);
-
-        let mut stat = Stat::new(10);
-        stat.add_points(5);
-        stat.allocate(StatId::Strength, 5).unwrap();
-        stat.add_modifier(StatId::Strength, Modifier::flat(10.0, bonus));
-        stat.refresh(Rounding::Floor, &caps());
+        let mut stat = Stat::new(10.0);
+        stat.add_points(5.0);
+        assert!(stat.allocate(StatId::Strength, 5.0).is_ok());
+        let _key = stat.add_modifier(StatId::Strength, Modifier::flat(10.0));
+        stat.refresh(&caps());
 
         // (10 + 5 + 10) = 25
-        assert_eq!(stat.strength, 25);
-        assert_eq!(stat.cunning, 10, "未加点的属性只有初始值");
+        assert_eq!(stat.strength, 25.0);
+        assert_eq!(stat.cunning, 10.0, "未加点的属性只有初始值");
     }
 
     #[test]
     fn refresh_rounds_once_at_the_end() {
-        let mut world = World::new();
-        let buff = source(&mut world);
+        let mut stat = Stat::new(10.0);
+        stat.add_modifier(StatId::Strength, Modifier::percent_add(1.00));
+        stat.refresh(&caps());
+        assert_eq!(stat.strength, 10.0, "10 * 1.05 = 10.5 → 向下取整 10");
 
-        let mut stat = Stat::new(10);
-        stat.add_modifier(StatId::Strength, Modifier::percent_add(0.05, buff));
-        stat.refresh(Rounding::Floor, &caps());
-        assert_eq!(stat.strength, 10, "10 * 1.05 = 10.5 → 向下取整 10");
-
-        stat.refresh(Rounding::Nearest, &caps());
-        assert_eq!(stat.strength, 11, "同一份数据换口径 → 11");
+        stat.refresh(&caps());
+        assert_eq!(stat.strength, 11.0, "同一份数据换口径 → 11");
     }
 
     #[test]
     fn removing_a_source_drops_it_from_every_slot() {
-        let mut world = World::new();
-        let source = source(&mut world);
-
-        let mut stat = Stat::new(10);
-        stat.add_modifier(StatId::Strength, Modifier::flat(4.0, source));
-        stat.add_modifier(StatId::Magic, Modifier::flat(4.0, source));
+        let mut stat = Stat::new(10.0);
+        let k1 = stat.add_modifier(StatId::Strength, Modifier::flat(4.0));
+        let k2 = stat.add_modifier(StatId::Magic, Modifier::flat(4.0));
         assert_eq!(stat.modifiers().len(), 2);
 
-        assert!(stat.remove_modifiers_by_source(source));
+        assert!(stat.remove_modifier(StatId::Strength, k1).is_some());
+        assert_eq!(stat.modifiers().len(), 1);
+        assert!(stat.remove_modifier(StatId::Strength, k1).is_none());
+        assert!(stat.remove_modifier(StatId::Strength, k2).is_some());
         assert!(stat.modifiers().is_empty());
-        assert!(
-            !stat.remove_modifiers_by_source(source),
-            "重复移除应为 false"
-        );
+        assert!(stat.remove_modifier(StatId::Strength, k2).is_none());
     }
 }

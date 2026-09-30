@@ -13,7 +13,6 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 bevy = "0.19"
-
 # 非 bevy 工具依赖（R5 登记制，见 docs/architecture.md 的"非 bevy 依赖登记表"）。
 # 只开用得到的派生：Display / Error（不用 `full`，避免拉一堆用不上的宏）。
 exn = "0.3"

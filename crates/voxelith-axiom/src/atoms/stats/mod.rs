@@ -21,26 +21,23 @@ mod stat;
 mod systems;
 
 pub use level::{Level, LevelConfig, LevelCurve};
-pub use stat::{DEFAULT_STAT, Stat, StatBlock, StatError, StatId, StatModifiers};
+pub use stat::{
+    DEFAULT_STAT, Modifier, ModifierCaps, ModifierOp, ModifierSet, Stat, StatBlock, StatError,
+    StatId, StatModifiers,
+};
 pub use systems::{
     AddStatModifierMessage, AllocateStatRequest, GrantStatPointsMessage,
     RemoveStatModifiersMessage, RespecStatsMessage, StatAllocatedMessage,
     StatAllocationFailedMessage, apply_stat_allocation, apply_stat_modifier_add,
     apply_stat_modifier_remove, apply_stat_point_grant, apply_stat_respec,
-    tick_stat_modifier_lifetimes,
 };
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
-use crate::atoms::modifiers::{ModifierCaps, Rounding};
-
 /// 属性模块配置（**Resource**：内容层 / 文件加载后注入）。
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct StatConfig {
-    /// 取整口径（见 [`Rounding`]）。
-    pub rounding: Rounding,
-}
+pub struct StatConfig {}
 
 /// 属性变更的阶段契约。
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -57,7 +54,6 @@ pub struct StatPlugin;
 impl Plugin for StatPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StatConfig>()
-            .init_resource::<ModifierCaps>()
             .add_message::<AllocateStatRequest>()
             .add_message::<GrantStatPointsMessage>()
             .add_message::<RespecStatsMessage>()
@@ -69,7 +65,6 @@ impl Plugin for StatPlugin {
             .add_systems(
                 Update,
                 (
-                    tick_stat_modifier_lifetimes,
                     apply_stat_modifier_add,
                     apply_stat_modifier_remove,
                     apply_stat_point_grant,

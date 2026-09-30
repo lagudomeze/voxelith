@@ -11,10 +11,10 @@ use core::time::Duration;
 
 use bevy::prelude::*;
 use voxelith_axiom::atoms::HealthPlugin;
-use voxelith_axiom::atoms::modifiers::{Modifier, ModifierSource};
 use voxelith_axiom::atoms::stats::{
     AddStatModifierMessage, Level, Stat, StatBlock, StatId, StatPlugin,
 };
+use voxelith_axiom::atoms::stats::{Modifier, ModifierSource};
 use voxelith_axiom::behaviors::combat::{CombatConfig, CombatPlugin};
 use voxelith_axiom::behaviors::resistance::Resistance;
 

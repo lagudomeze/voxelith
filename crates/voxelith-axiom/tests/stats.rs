@@ -12,12 +12,12 @@ use core::time::Duration;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_time::Time;
-use voxelith_axiom::atoms::modifiers::{Modifier, ModifierSource, Rounding};
 use voxelith_axiom::atoms::stats::{
     AddStatModifierMessage, AllocateStatRequest, GrantStatPointsMessage, Level, LevelConfig,
     RemoveStatModifiersMessage, RespecStatsMessage, Stat, StatBlock, StatConfig, StatId,
     StatPlugin,
 };
+use voxelith_axiom::atoms::stats::{Modifier, ModifierSource, Rounding};
 use voxelith_axiom::behaviors::progression::{
     GainExperienceMessage, LevelUpMessage, ProgressionPlugin,
 };

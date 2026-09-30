@@ -19,8 +19,7 @@
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
-use crate::atoms::modifiers::ModifierCaps;
-use crate::atoms::stats::StatConfig;
+use crate::atoms::stats::{ModifierCaps, StatConfig};
 use crate::behaviors::damage::DamagePlugin;
 use crate::behaviors::damage_pipeline::{DamagePipelinePlugin, PipelineConfig};
 use crate::behaviors::progression::ProgressionPlugin;

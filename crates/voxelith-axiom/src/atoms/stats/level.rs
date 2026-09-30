@@ -13,7 +13,7 @@ pub trait LevelCurve: Send + Sync + 'static {
     /// 等级上限。
     fn max_level(&self) -> u32;
     /// 每升一级发放的可分配点数。
-    fn points_per_level(&self) -> u32;
+    fn points_per_level(&self) -> f32;
     /// 从 `current_level` 升到下一级所需经验。
     fn exp_required(&self, current_level: u32) -> u64;
 }
@@ -24,7 +24,7 @@ pub struct LevelConfig {
     /// 等级上限。
     pub max_level: u32,
     /// 每级发放的可分配点数。
-    pub points_per_level: u32,
+    pub points_per_level: f32,
     /// 曲线基数。
     pub base_exp: u64,
     /// 曲线指数。
@@ -37,7 +37,7 @@ impl Default for LevelConfig {
     fn default() -> Self {
         Self {
             max_level: 50,
-            points_per_level: 5,
+            points_per_level: 5.0,
             base_exp: 100,
             exp_power: 2.0,
             exp_penalty: 1.0,
@@ -50,7 +50,7 @@ impl LevelCurve for LevelConfig {
         self.max_level
     }
 
-    fn points_per_level(&self) -> u32 {
+    fn points_per_level(&self) -> f32 {
         self.points_per_level
     }
 
@@ -124,8 +124,8 @@ mod tests {
         fn max_level(&self) -> u32 {
             3
         }
-        fn points_per_level(&self) -> u32 {
-            2
+        fn points_per_level(&self) -> f32 {
+            2.0
         }
         fn exp_required(&self, _current_level: u32) -> u64 {
             10

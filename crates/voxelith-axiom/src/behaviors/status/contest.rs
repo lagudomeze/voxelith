@@ -119,7 +119,7 @@ mod tests {
     use super::*;
     use crate::atoms::stats::StatBlock;
 
-    fn stat_with(strength: u32, constitution: u32) -> Stat {
+    fn stat_with(strength: f32, constitution: f32) -> Stat {
         let mut base = StatBlock::default();
         base.set(StatId::Strength, strength);
         base.set(StatId::Constitution, constitution);
@@ -163,8 +163,8 @@ mod tests {
 
     #[test]
     fn contest_kind_picks_the_right_attribute_pair() {
-        let attacker = stat_with(30, 5);
-        let defender = stat_with(10, 12);
+        let attacker = stat_with(30.0, 5.0);
+        let defender = stat_with(10.0, 12.0);
         let (offense, defense) = ContestKind::Physical.scores(&attacker, &defender);
         assert_eq!((offense, defense), (30.0, 12.0));
         assert_eq!(ContestKind::Spell.offense_stat(), StatId::Magic);

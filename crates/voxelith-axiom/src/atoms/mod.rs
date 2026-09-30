@@ -17,16 +17,13 @@
 //! 详见 `docs/layers.md`、`docs/combat-mechanics.md`。
 
 pub mod health;
-pub mod modifiers;
 pub mod stats;
 
 pub use health::{Health, HealthPlugin, ModifyHealthMessage, apply_health_change};
-pub use modifiers::{
-    Modifier, ModifierCaps, ModifierOp, ModifierSet, ModifierSource, Rounding, evaluate,
-};
 pub use stats::{
     AddStatModifierMessage, AllocateStatRequest, DEFAULT_STAT, GrantStatPointsMessage, Level,
     LevelConfig, LevelCurve, RemoveStatModifiersMessage, RespecStatsMessage, Stat,
     StatAllocatedMessage, StatAllocationFailedMessage, StatBlock, StatConfig, StatError, StatId,
     StatModifiers, StatPlugin, StatStage,
 };
+pub use stats::{Modifier, ModifierCaps, ModifierOp, ModifierSet};
