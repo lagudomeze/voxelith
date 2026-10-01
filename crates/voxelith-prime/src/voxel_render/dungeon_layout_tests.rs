@@ -9,8 +9,6 @@
 
 use super::*;
 
-use super::*;
-
 fn spec(seed: u64) -> DungeonSpec {
     DungeonSpec { seed, ..default() }
 }

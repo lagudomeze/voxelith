@@ -16,8 +16,6 @@ use super::*;
 mod tests {
     use super::*;
 
-    use super::*;
-
     #[test]
     fn facing_follows_the_dominant_axis() {
         assert_eq!(Facing::from_direction(Vec2::new(1.0, 0.0)), Facing::East);

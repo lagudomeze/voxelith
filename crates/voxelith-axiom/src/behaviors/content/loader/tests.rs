@@ -7,7 +7,6 @@
 
 use super::*;
 
-use super::*;
 // 只在测试里构造描述结构时用到的类型（生产路径走 `resolve_defs`）。
 use crate::atoms::actor::{ActorTag, Faction};
 use crate::behaviors::content::descriptor::{

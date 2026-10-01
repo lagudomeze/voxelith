@@ -25,7 +25,7 @@ use bevy::prelude::*;
 use super::dungeon_layout::{self, DungeonSpec, Placement};
 
 pub use super::dungeon_parts::DEFAULT_PART_KIT;
-use super::dungeon_parts::{DungeonParts, loaded_parts};
+use super::dungeon_parts::loaded_parts;
 
 /// 地牢配置（**Resource**）。
 #[derive(Resource, Debug, Clone)]
@@ -306,6 +306,7 @@ impl Plugin for DungeonPlugin {
 
 #[cfg(test)]
 mod tests {
+    use super::super::dungeon_parts::DungeonParts;
     use super::*;
 
     /// 解析好的配置（缓存过，只解析一次）。

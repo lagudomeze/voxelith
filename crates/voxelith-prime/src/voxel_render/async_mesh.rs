@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn a_chunk_holding_the_surface_is_not_reported_empty() {
         let terrain = terrain_with_blocks();
-        let mut store = VoxelStore::default();
+        let store = VoxelStore::default();
 
         // 先确认这个世界的 y = 0 附近**确实**有方块（否则测试本身没意义）。
         assert!(
