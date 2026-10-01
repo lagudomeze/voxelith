@@ -1,0 +1,53 @@
+// 地牢布局：**件名 → 模型文件**的映射。
+//
+// ## 为什么单独一份配置
+//
+// 布局代码（`dungeon_layout.rs`）只知道"这里要一堵直墙"，
+// 不知道那一堵墙叫什么文件。名字属于**内容**，所以放在 `.ron` 里 ——
+// 换一套 Kenney 素材只改这里，代码一行不动（规则 13 的精神）。
+//
+// 三个套件各有一套映射，因为它们的**件名不同**：
+// platformer 是方块套件，没有墙/门，只有 `block-*`；
+// dungeon 与 cave 才是模块化建筑件。
+(
+    // 默认用哪一套。
+    default_kit: "dungeon",
+
+    kits: [
+        (
+            key: "dungeon",
+            // 地板块。**必须是 4x4 的那个**（`template-floor-big` 是 8x8，
+            // 放进来会一格盖四格）。
+            floor: "template-floor",
+            wall: "template-wall",
+            wall_corner: "template-wall-corner",
+            // 门：`gate-door` 是嵌在墙开口里的门扇。
+            door: "gate-door",
+            stairs: "stairs",
+        ),
+        (
+            key: "cave",
+            floor: "template-floor",
+            wall: "template-wall",
+            wall_corner: "template-wall-corner",
+            // cave 套件没有 `gate-door`，用石栅栏门代替。
+            door: "gate-rock",
+            stairs: "stairs",
+        ),
+        (
+            // platformer 是**方块**套件，没有建筑件 —— 用方块顶替，
+            // 这样至少能看出"布局在跑"。真要拼建筑该用 dungeon / cave。
+            //
+            // ⚠️ 这里的名字**逐个对着 `blocks.txt` 核过**：
+            // 我第一版写的 `block-grass-slope` 不存在（真实名字是
+            // `block-grass-large-slope`）—— 而**写错名字不会报错**，
+            // 只是那一格空着。所以有测试对着清单核对。
+            key: "platformer",
+            floor: "block-grass",
+            wall: "block-grass-large",
+            wall_corner: "block-grass-corner",
+            door: "block-grass",
+            stairs: "block-grass-large-slope",
+        ),
+    ],
+)

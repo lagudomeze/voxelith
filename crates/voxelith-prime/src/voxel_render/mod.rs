@@ -24,6 +24,9 @@
 pub mod async_mesh;
 mod atlas;
 pub mod camera;
+mod dungeon_build;
+mod dungeon_layout;
+mod dungeon_parts;
 mod floor_grid;
 mod gltf_material;
 mod ground_style;
@@ -107,6 +110,8 @@ impl Plugin for VoxelRenderPlugin {
         .add_plugins(gltf_material::GltfMaterialPlugin)
         // **坐标轴指示器**（`SHOW_AXES=1` 打开）：等距视图下 X/Z 极易看混。
         .add_plugins(world_axes::WorldAxesPlugin)
+        // **程序化地牢**（`DUNGEON=1` 打开）：房间 + 走廊 + 门，验证模块化件对不对缝。
+        .add_plugins(dungeon_build::DungeonPlugin)
         // **可交互相机**（`ORBIT_CAMERA=1` 打开）：中键平移 / 滚轮缩放 / 右键转视角 / R 复位。
         .add_plugins(orbit_camera::OrbitCameraPlugin)
         // **模型展示台**：把 Kenney 的 GLB 方块一个一个摆出来（素材浏览器）。

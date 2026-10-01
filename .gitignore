@@ -22,3 +22,7 @@
 # 所以只忽略**具体的截图目录**，**不按扩展名忽略**。
 /work/shots/
 .dsh/skills/brp-http/*.png
+
+# 跑应用时重定向的日志（我习惯写 `work/xxx.txt`）——
+# 不挡住的话会被 `git add -A` 顺手带进提交里（真的发生过）。
+/work/*.txt
