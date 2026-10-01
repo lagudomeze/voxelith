@@ -141,9 +141,36 @@ pub struct ModelGalleryConfig {
     pub enabled: bool,
     /// 展示哪一套。
     pub kit: &'static ModelKit,
-    /// 展示台中心（避免和真实地形重叠）。
+    /// 展示台中心。
+    ///
+    /// ## 为什么放在 `y = 0`（贴着地板，而不是抬到天上）
+    ///
+    /// 早先这里是 `y = 40`，理由是"避免和体素地形重叠" ——
+    /// **那个理由现在不成立了**：默认地面已经换成 GLB 地板网格（见 `floor_grid`），
+    /// 而地板只在 `y = 0` 的一个薄层。
+    ///
+    /// 抬到 `y = 40` 的后果是**两套东西在空间上完全没有交集**：
+    /// 相机要么看得到地板、要么看得到模型，**永远不能同时看到** ——
+    /// 于是也**没法判断模型对不对齐格子**（那恰恰是这个工具最该回答的问题）。
     pub origin: Vec3,
 }
+
+/// 展示台相对世界原点的偏移：往 `+X` 挪一段，**但仍在同一片地板上**。
+///
+/// ## 取值依据（第一版取 80，是错的）
+///
+/// 第一版取 `80`，想的是"地板半边长 48 + 展示台半宽 56 ⇒ 别重叠"。
+/// 结果两者**完全不挨着**：模型站在地板外面的一片空地上，
+/// 而"模型对齐不对齐格子"正是这个工具要回答的问题 —— 看不到格子就等于没用。
+///
+/// 正确做法是让模型**站在格子上**。取 `24`：
+///
+/// - 地板 `x` 范围 `-48 .. +48`；
+/// - 展示台半宽 `56`，中心在 `24` ⇒ 范围 `-32 .. +80`，
+///   其中 `-32 .. +48` 这一段**落在地板上**（80 格宽，占了大部分）。
+///
+/// 于是画面里既能看到成片的格子，也能看到模型踩在格子上的样子。
+pub const GALLERY_X_OFFSET: f32 = 24.0;
 
 impl Default for ModelGalleryConfig {
     fn default() -> Self {
@@ -157,8 +184,8 @@ impl Default for ModelGalleryConfig {
         Self {
             enabled,
             kit: ModelKit::by_key(&key),
-            // 抬到地形上方（地形在 y = ±2 附近）。
-            origin: Vec3::new(0.0, 40.0, 0.0),
+            // **贴地**，并往 `+X` 挪出地板中心 —— 见 [`GALLERY_X_OFFSET`]。
+            origin: Vec3::new(GALLERY_X_OFFSET, 0.0, 0.0),
         }
     }
 }
@@ -237,6 +264,7 @@ pub fn spawn_model_gallery(
 pub fn aim_camera_at_gallery(
     config: Res<ModelGalleryConfig>,
     gallery: Option<Res<ModelGallery>>,
+    floor: Option<Res<super::floor_grid::FloorGridConfig>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<super::camera::BattlefieldCamera>>,
 ) {
     if !config.enabled || gallery.is_none() || !config.is_changed() {
@@ -245,11 +273,48 @@ pub fn aim_camera_at_gallery(
     let kit = config.kit;
     let span_x = kit.columns as f32 * kit.spacing;
     let span_z = kit.rows() as f32 * kit.spacing;
-    // 等距（方位角 45°）下，横向网格与纵向网格在屏幕上各占约 1/sqrt2，
-    // 所以屏幕宽度约 (span_x + span_z) / sqrt2；再留 12% 边距。
-    let view_width = (span_x + span_z) / 2.0_f32.sqrt() * 1.12;
 
-    let focus = config.origin;
+    // ---- 把**地板与展示台一起**框进来 ----
+    //
+    // ## 为什么要一起框（第一版只框展示台，结果是错的）
+    //
+    // 只框展示台的话，地板完全在画面外 —— 而**"模型有没有对齐格子"
+    // 正是这个工具最该回答的问题**。看不到格子，就判断不了。
+    //
+    // 做法：算两台东西在世界 XY 平面上的**并集范围**，再按等距投影
+    // 折算成屏幕宽度。
+    let gallery_half_x = span_x / 2.0;
+    let gallery_half_z = span_z / 2.0;
+    // 地板：`extent` 格、间距 1，中心在 `center`。
+    let (floor_half, floor_center) = floor.as_ref().map_or((0.0, Vec2::ZERO), |f| {
+        (
+            f.extent as f32 * super::floor_grid::CELL_SPACING / 2.0,
+            Vec2::new(
+                f.center.x as f32 * super::floor_grid::CELL_SPACING,
+                f.center.y as f32 * super::floor_grid::CELL_SPACING,
+            ),
+        )
+    });
+
+    // 世界 X/Z 上的并集范围。
+    let min_x = (config.origin.x - gallery_half_x).min(floor_center.x - floor_half);
+    let max_x = (config.origin.x + gallery_half_x).max(floor_center.x + floor_half);
+    let min_z = (config.origin.z - gallery_half_z).min(floor_center.y - floor_half);
+    let max_z = (config.origin.z + gallery_half_z).max(floor_center.y + floor_half);
+    let span_all_x = max_x - min_x;
+    let span_all_z = max_z - min_z;
+
+    // 等距（方位角 45°）下，世界网格在屏幕上各占约 1/sqrt2，所以屏幕宽度
+    // 约 `(跨度X + 跨度Z) / sqrt2`；再留 12% 边距。
+    let view_width = (span_all_x + span_all_z) / 2.0_f32.sqrt() * 1.12;
+
+    // 注视点取并集范围的**中心**，而不是展示台中心 —— 否则画面对不齐。
+    let focus = Vec3::new(
+        (min_x + max_x) / 2.0,
+        config.origin.y,
+        (min_z + max_z) / 2.0,
+    );
+
     // 正交下距离不影响取景范围，只影响透视；取够大以免被近平面裁掉。
     let distance = view_width * 1.2;
     let pitch = 45.0_f32.to_radians();
