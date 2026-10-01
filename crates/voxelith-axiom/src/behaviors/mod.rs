@@ -1,28 +1,37 @@
-//! L1 行为层（behaviors）：**需要多个组件/资源同时在场才生效**的逻辑（**R11**）。
+//! L1 行为层（behaviors）：**需要多个组件 / 资源同时在场才生效**的逻辑（**R11**）。
 //!
 //! - 允许依赖 L0（**R12**）。
-//! - 修改 L0 数据**必须通过消息**，不直接写（**R13**）。
+//! - 修改 L0 数据**必须通过消息 / 效果执行器**，不直接写（**R13**）。
 //! - 禁止依赖 L2、禁止生成渲染实体（**R14**）。
 //!
-//! 领域地图（对应 `docs/combat-mechanics.md`）：
+//! 领域地图（对应 [docs/combat-design.md](../../../docs/combat-design.md) §9）：
 //!
-//! | 模块 | 职责 | 当前状态 |
-//! |---|---|---|
-//! | [`progression`] | 成长编排：经验 → 升级 → 发点数 | 已完成 |
-//! | [`damage`] | 伤害类型定义 + 附加行为分派 | 组件/消息/注册表就位，分派待接内容层 |
-//! | [`resistance`] | 抵抗（自成一体：数据 + 修饰符 + 视图）+ 确定性减伤公式 | 已完成 |
-//! | [`rolls`] | 概率判定（命中 / 闪避 / 暴击）：**唯一随机点** | RNG 与消息就位，判定公式待接 |
-//! | [`damage_pipeline`] | 固定四阶段伤害管线 → `DamageResolvedMessage` | 阶段槽位就位，阶段体待实现 |
-//! | [`status`] | 状态定义 / 施加 / 结算 / 到期 / 免疫 / 净化 / 叠加 | 组件与注册表就位，判定待接 |
-//! | [`combat`] | 战斗配置汇总（`CombatConfig`）+ 装配 | 已完成 |
-//!
-//! 注：修饰符（`Modifier` / `ModifierSet` / `evaluate`）是**纯数据 + 纯算法、没有组件**，
-//! 因此放在 L0（[`crate::atoms::modifiers`]），供 `atoms::stats` 与 `behaviors::resistance` 共用。
+//! | 模块 | 职责 |
+//! |---|---|
+//! | [`content`] | 词汇表 + RON 描述 + 解析（字符串 → ID）+ 定义目录 |
+//! | [`value`] | `Value`：受控闭集的表达式原语 |
+//! | [`contest`] | `Contest`：对抗（唯一随机点 + 唯一强度来源） |
+//! | [`effect`] | `Effect`：**唯一的世界突变原语**（技能与状态共用） |
+//! | [`requirement`] | `Requirement` / `Condition`：门控是纯数据 |
+//! | [`targeting`] | 目标解析（只做"寻找与判定"，R59） |
+//! | [`skill`] | 技能**定义**与标签 |
+//! | [`action`] | 行动**实例**：释放 / 推进 / 结算（成员之一即"行动槽"） |
+//! | [`status`] | 状态**定义 + 实例 + 生命周期 + 派生修饰符** |
+//! | [`monster`] | 怪物：能量 → 选招 → 生成威胁行动 |
+//! | [`phase`] | `CombatPhase` 状态机 + 挂起威胁 + 可用技能 + 战斗日志 |
+//! | [`time_scale`] | 用 `Time<Virtual>` 倍率表达"冻结" |
+//! | [`combat`] | 装配（`CombatConfig` + 固定系统顺序） |
 
+pub mod action;
 pub mod combat;
-pub mod damage;
-pub mod damage_pipeline;
-pub mod progression;
-pub mod resistance;
-pub mod rolls;
+pub mod content;
+pub mod contest;
+pub mod effect;
+pub mod monster;
+pub mod phase;
+pub mod requirement;
+pub mod skill;
 pub mod status;
+pub mod targeting;
+pub mod time_scale;
+pub mod value;

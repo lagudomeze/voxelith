@@ -1,0 +1,13 @@
+[
+    // 玩家也是**内容**：池 / 属性 / 阵营 / 特性全在这里配，L2 不写死任何数值（规则 13）。
+    // `role: Player` = 听输入、不攒能量；换成 `Monster` 就变成一个 AI 控制的友军。
+    (
+        id: "player",
+        name: "冒险者",
+        role: Player,
+        resources: [("hp", 100), ("mana", 50), ("action", 1), ("reaction", 3)],
+        stats: [("strength", 12), ("armor", 4), ("agility", 8)],
+        faction: Player,
+        traits: [],
+    ),
+]

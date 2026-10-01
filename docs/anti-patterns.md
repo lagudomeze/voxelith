@@ -35,16 +35,17 @@ pub enum GameEvent { Damage(..), Heal(..), Move(..), ChunkDirty(..), OpenMenu(..
 
 ## 3. 战斗类
 
-### ❌ `health` 里写护甲 / 闪避 / 暴击逻辑（R98、R47）
+### ❌ `atoms` 里写护甲 / 闪避 / 暴击逻辑（R98、R47）
 
-**为什么错**：`health` 是纯数值执行器（R56）；公式进来后，改一次平衡要动 L0，L0 变成业务泥潭。
-**正确**：`DamageType`、命中、闪避、减伤、暴击全在 L1（R48、R50、R54）。
-**检查**：`health.rs` 中出现 `Armor` / `Dodge` / `Crit` / `DamageType` 即违规。
+**为什么错**：`atoms::actor` 是纯数值执行器（R56）；公式进来后，改一次平衡要动 L0，L0 变成业务泥潭。
+**正确**：护甲 / 命中 / 闪避 / 减伤 / 暴击全在 L1（R48、R50、R54）——现行落地形态是
+[combat-design.md](combat-design.md) 的 `Contest`（对抗表达式）+ RON 里的阈值与结果分支。
+**检查**：`atoms/actor.rs` 里出现 `Armor` / `Dodge` / `Crit` / `DamageType` 即违规。
 
 ### ❌ 在 L2 算伤害 / 写公式（R17、R100）
 
 **为什么错**：表现层算公式会导致两处逻辑不一致（UI 显示和实际结算不同步），且不可测试。
-**正确**：L2 只监听 `DamageRequest` 做表现（R55）。
+**正确**：L2 只读 `CombatLog` / `AvailableSkills` / `ActiveActions` 做表现（R55）。
 
 ## 4. 分层污染类
 
@@ -56,19 +57,19 @@ bevy = { workspace = true }
 ```
 
 **为什么错**：`bevy` 会拖入 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr`，L0 物理隔离失效（R94）。
-**正确**：bevy 家族只允许 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time`；
-其余第三方工具 crate 走**登记制**——先在 [architecture.md](architecture.md) 的登记表登记（R5 修订，Q21/Q23）。
+**正确**：bevy 家族只允许 `bevy_ecs` / `bevy_app` / `bevy_reflect` / `bevy_time` / `bevy_state`；
+其余第三方工具 crate 走**登记制**——先在 [architecture.md](architecture.md) 的登记表登记（R5 修订，Q21/Q23/Q26）。
 **检查**：`arch-guard.ps1` 第 2、5 项（第 5 项会同时检查"bevy 白名单"和"非 bevy 登记表"）。
 
 ### ❌ L2 直接改 L0/L1 核心数据（R100、R16）
 
 ```rust
 // ❌ L2
-fn cheat(mut q: Query<&mut Health>) { for mut h in &mut q { h.current = 9999; } }
+fn cheat(mut q: Query<&mut Resources>) { for mut pools in &mut q { /* 直接写池 */ } }
 ```
 
 **为什么错**：绕过了唯一写入口（R56），数值变化失去可追踪性。
-**正确**：发 `ModifyHealthMessage`（治疗/伤害都走它）。
+**正确**：发 `CastRequest`，由 L1 走 `Effect::ModifyResource`（治疗/伤害都走它）。
 
 ### ❌ 数据组件存 `Handle<Image>`（R103、R10）
 

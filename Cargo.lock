@@ -3054,6 +3054,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "glb-probe"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3429,6 +3436,7 @@ checksum = "d27bbb9d3abbefac45d55f647c9de1d44aafcd1186eb91879afef17c396c3e73"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
+ "log",
  "serde",
  "stable_deref_trait",
  "writeable",
@@ -3444,6 +3452,7 @@ version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82d07aafccd67af15d02512a6adf5896fbc5ed00f2e99b471d2efa14016db3db"
 dependencies = [
+ "core_maths",
  "icu_collections",
  "icu_locale_fallback",
  "icu_provider",
@@ -5868,9 +5877,11 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bevy_reflect",
+ "bevy_state",
  "bevy_time",
  "derive_more",
  "exn",
+ "serde",
 ]
 
 [[package]]
@@ -5880,6 +5891,11 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_brp_extras",
+ "icu_provider",
+ "icu_segmenter",
+ "ron",
+ "serde",
+ "serde_json",
  "voxelith-axiom",
 ]
 

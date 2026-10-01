@@ -7,9 +7,20 @@
 不存在 `player` 模块或 `monster` 模块。玩家是"一组组件的实体"，怪物也是。
 
 ```
-玩家实体   = Health + Position + Velocity + PlayerInput + Sprite + ...
-怪物实体   = Health + Position + Velocity + AiBrain     + Sprite + ...
+玩家实体   = Actor + Player + Faction::Player + Resources + Stats + ActorTags + ... 
+怪物实体   = Actor + Monster + Faction::Monster + Resources + Stats + ActorTags + MonsterDef + ...
 ```
+
+> **三条正交的轴**（详见 [combat-design.md](combat-design.md) §4.0）：
+>
+> | 轴 | 组件 | 回答 |
+> |---|---|---|
+> | 引擎角色 | `Player` / `Monster` 标记 | 谁听输入、谁自己 tick |
+> | 阵营 | `Faction` | 谁打谁 |
+> | 特性 | `ActorTags` | 它是什么东西（亡灵 / 野兽 / 构装体） |
+>
+> "玩家侧的亡灵"就是同时带 `Player` + `Faction::Player` + `ActorTags([Undead])`——
+> 三条轴各写各的，不需要任何特例。
 
 ### 2. 生成逻辑放独立 `spawn` 模块或各模块的工厂函数（R79）
 
@@ -18,18 +29,21 @@
 
 ```rust
 // ✅ 工厂函数风格：组合来自不同模块的组件
-pub fn spawn_monster(commands: &mut Commands, pos: Position, archetype: MonsterKind) -> Entity {
+pub fn spawn_monster(commands: &mut Commands, pools: Resources, faction: Faction) -> Entity {
     commands.spawn((
-        Health::new(archetype.max_hp()),   // 来自 combat/健康领域
-        Position(pos),                     // 来自 movement 领域
-        Velocity::default(),               // 来自 movement 领域
-        AiBrain::new(archetype.behavior()),// 来自 ai 领域
+        Actor,
+        Monster,                     // 引擎角色：自己 tick
+        faction,                     // 阵营：内容给的
+        pools,                       // 来自 atoms::actor（池）
+        Stats::default(),            // 来自 atoms::actor（属性）
+        ActorTags(vec![ActorTag::Undead]), // 特性：跨阵营的性状
         // Sprite 由 L2 表现层追加，不在数据层生成
     )).id()
 }
 ```
 
-> 组件的**来源模块**：`Health` 来自健康/战斗领域，`Position` 来自 `movement`，`Sprite` 来自 `presentation`。（R81）
+> 组件的**来源模块**：`Resources` / `Stats` / `Faction` 来自 `atoms::actor`，
+> `Position` 来自 `movement`（待做），`Sprite` 来自 `presentation`。（R81）
 > 数据层工厂**不要**顺手加 `SpriteBundle`——那是 L2 的职责（R14、R18）。
 
 ### 3. 共用系统，不同驱动源（R80）
@@ -45,7 +59,14 @@ pub fn spawn_monster(commands: &mut Commands, pos: Position, archetype: MonsterK
 
 ### 4. `combat` 不认识"怪物"概念（R82）
 
-`combat` 只认识 `Health`、`Armor` 等组件。代码里出现 `Monster`、`Player`、`Enemy` 类型判断即违规——需要区分阵营时，用数据组件（如 `Faction`）表达。
+`combat` 只认识 `Resources`、`Stats`、`Faction`、`ActorTags` 等组件。代码里出现
+`Enemy` 这类"阵营类型判断"即违规——需要区分敌我时，用数据组件 `Faction` 表达；
+需要区分"是什么东西"时，用数据组件 `ActorTags` 表达。
+
+`Player` / `Monster` 标记是允许的例外，但它们只回答**引擎怎么驱动它**（听输入 / 自己 tick），
+不回答"谁打谁"——所以 AI、相位、输入系统可以用它们，战斗判定不可以用。
+**两者不可互相顶替**：用 `With<Monster>` 判"是不是敌人"是违规（友方 NPC 也会是 `Monster`，
+而玩家侧的亡灵也仍然是 `Player`）。
 
 ## 第二部分：渲染与 UI 的边界（R83–R89）
 

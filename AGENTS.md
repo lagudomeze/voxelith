@@ -9,7 +9,8 @@
 
 ```
 voxelith-prime (L2 表现/内容)  ──依赖──►  voxelith-axiom (L0 atoms + L1 behaviors)
-      可依赖完整 bevy                    只允许 bevy_ecs / bevy_app / bevy_reflect / bevy_time
+      可依赖完整 bevy                    只允许 bevy_ecs / bevy_app / bevy_reflect / bevy_time / bevy_state
+                                         （非 bevy 依赖走登记表，见 architecture.md）
 ```
 
 **数据归数据，公式归公式，执行归执行，表现归表现。**（规则 112）
@@ -27,14 +28,15 @@ Rust edition 2024 · Cargo workspace（不发布 crates.io）· Bevy `0.19` · c
 | 2 | `voxelith-axiom` 不得依赖完整 `bevy`，不得出现 `bevy_render` / `bevy_ui` / `bevy_sprite` / `bevy_pbr` | [layers.md](docs/layers.md) |
 | 3 | L0 组件只依赖自己，系统只查询自己；禁止渲染类型（`Sprite`/`Mesh`/`Text`/`Transform`/`Handle<Image>`） | [layers.md](docs/layers.md) |
 | 4 | L1 修改 L0 数据必须通过事件；L1 不得生成渲染实体 | [layers.md](docs/layers.md) |
-| 5 | L2 只读 L0/L1 数据，禁止直接改 `Health`/`Velocity`，禁止写战斗公式 | [layers.md](docs/layers.md) |
+| 5 | L2 只读 L0/L1 数据，禁止直接改资源池等核心数据，禁止写战斗公式 | [layers.md](docs/layers.md) |
 | 6 | 模块名按功能领域；禁止 `base` / `common` / `utils` / `helpers` | [naming.md](docs/naming.md) |
 | 7 | 禁用 `scense` 拼写，统一 `presentation` | [naming.md](docs/naming.md) |
 | 8 | 单文件 > 500 行必须拆分；单 crate > 5000 行考虑拆 crate | [file-layout.md](docs/file-layout.md) |
 | 9 | 事件定义在发出它的模块；谁定义谁注册；禁止全局 `GameEvent` 大枚举；**广播用 `Message`，实体级立即反应用 `EntityEvent`** | [events-and-plugins.md](docs/events-and-plugins.md)、[bevy-events.md](docs/bevy-events.md) |
-| 10 | `health` 是纯数值执行器，唯一能改 `Health` 的地方；不认识 `DamageType` | [combat.md](docs/combat.md) |
+| 10 | 战斗数值只走 `Effect` 原语：伤害 = `Contest` 成功后改资源池，**没有 `Damage` 变体**；`Atoms` 不认识伤害类型 | [combat-design.md](docs/combat-design.md) |
 | 11 | `world`（数据）不加载纹理、不碰 `AssetServer`；渲染层不得自己发明位置 | [voxel-world.md](docs/voxel-world.md) |
 | 12 | 禁止空壳 Plugin；Plugin ≠ 文件夹，代码多只拆 mod | [events-and-plugins.md](docs/events-and-plugins.md) |
+| 13 | 内容（技能/状态/资源/怪物）加进 `.ron`，**加内容不改代码**；字符串只在加载期出现 | [combat-design.md](docs/combat-design.md) |
 
 ## 提交前必跑
 
@@ -61,8 +63,9 @@ tokei --sort code                       # 无文件 > 500 行
 | [docs/naming.md](docs/naming.md) | 命名规范（规则 28–32、111） |
 | [docs/events-and-plugins.md](docs/events-and-plugins.md) | 事件通信 + Plugin 使用（规则 33–46） |
 | [docs/bevy-events.md](docs/bevy-events.md) | **Message vs Event**：选择依据、决策树、代码模板 |
-| [docs/combat.md](docs/combat.md) | 战斗系统设计（规则 47–63） |
-| [docs/combat-mechanics.md](docs/combat-mechanics.md) | **战斗机制 ECS 设计稿**：属性/修饰符/伤害类型/抵抗/判定/管线/状态、扩展手册、里程碑 |
+| [docs/combat-design.md](docs/combat-design.md) | **半即时战斗（唯一权威）**：Skill/Action/Status、`Effect` 原语、`Contest` 对抗、`CombatPhase` 时间控制、RON 配置 |
+| [docs/combat.md](docs/combat.md) | 战斗系统的分层与事件流水线（规则 47–63；伤害管线部分已被 combat-design 取代） |
+| [docs/combat-mechanics.md](docs/combat-mechanics.md) | 旧战斗机制设计稿（**已被取代**，保留取舍过程） |
 | [docs/voxel-world.md](docs/voxel-world.md) | 体素世界与渲染分离（规则 64–77） |
 | [docs/debugging.md](docs/debugging.md) | **调试通道（项目侧）**：BRP 如何接入、egui 检查器与相机前提、`LNK1102` |
 | [docs/entities-and-rendering.md](docs/entities-and-rendering.md) | 玩家/怪物组合、渲染与 UI 边界（规则 78–89） |

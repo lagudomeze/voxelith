@@ -132,10 +132,10 @@ Voxelith 的通信绝大多数是"**核心数据变化了，请所有关心的�
 
 | 场景 | 用哪个 | 理由 |
 |---|---|---|
-| 伤害/治疗数值变更 `ModifyHealthMessage` | **Message** | 需要唯一写入口 + 可被公式拦截改写（R54、R56）+ 多系统观察 |
-| 战斗请求 `DamageRequest` | **Message** | L1 公式链要拦截、L2 表现要旁路监听（R50、R55） |
+| 释放请求 `CastRequest` | **Message** | L2 输入 / AI 发出，L1 消费；请求是异步的，不该立即执行（R33、R50） |
 | 区块脏标记 `ChunkDirtyMessage` | **Message** | 唤醒异步网格化任务，不需要立即执行；可合并多帧修改（R70） |
 | 体素选中变化 `VoxelSelectedMessage` | **Message** | 表现层每帧读最新状态即可（R77） |
+| 状态实例到期/被摘 `DetachStatusMessage` | **Message** | 结算系统与生命周期系统解耦：发的一方不关心谁执行（R33） |
 | 血量归零 `DeathEvent` | **EntityEvent** | 目标明确（阵亡实体），需要绑定实体分发；表现与掉落可 `observe` |
 | **特效/动画的"启动"信号**（受击闪白、死亡特效用 observer 起） | **EntityEvent**（通知层） | 通知只需一瞬间、且天然绑定"被击中的那个实体"。**动画本身住在组件里，与这里的选择无关**（§2.4） |
 | 特效的"推进与结束"（闪 3 帧、渐隐 0.5 秒） | **都不是** | 这是跨帧状态：存组件 + 每帧系统推进。不要用事件承载生命周期（§2.4） |
@@ -144,6 +144,7 @@ Voxelith 的通信绝大多数是"**核心数据变化了，请所有关心的�
 | 组件增删触发的初始化/清理 | **Event（`On<Add, C>` / `On<Remove, C>`）** | Bevy 内建生命周期事件，没有 Message 版本 |
 | 输入（键盘/鼠标状态） | 都不是 | 用 `ButtonInput` 资源轮询，不要包成事件 |
 | 状态机切换（`State`） | 都不是 | 用 Bevy `State` / `SubStates`，不要包成事件 |
+| **战斗日志 `CombatLog`** | **都不是（Resource）** | 它是"追加 + 每帧读完清空"的缓冲；效果执行器拿不到 `MessageWriter`，所以用 Resource 降低耦合 |
 
 > ⚠️ 注意上面把**同一件事拆成了两行**：通知（Event）与动画推进（组件+系统）。
 > 把它们混成一行，就会得出"特效跨帧所以不能用 Event"这种错误结论。
@@ -154,19 +155,19 @@ Voxelith 的通信绝大多数是"**核心数据变化了，请所有关心的�
 
 ```rust
 #[derive(Message, Debug, Clone, Copy)]
-pub struct ModifyHealthMessage { pub entity: Entity, pub amount: i32 }
+pub struct CastRequest { pub caster: Entity, pub skill: Entity, pub target: Option<Entity> }
 
 // 注册（发出方模块的 Plugin，R34）
-app.add_message::<ModifyHealthMessage>();
+app.add_message::<CastRequest>();
 
 // 写入
-fn attack(mut out: MessageWriter<ModifyHealthMessage>) {
-    out.write(ModifyHealthMessage { entity, amount: -10 });
+fn player_input(mut out: MessageWriter<CastRequest>) {
+    out.write(CastRequest { caster, skill, target: Some(enemy) });
 }
 
 // 读取（可以有任意多个系统各读一遍全量）
-fn apply_health_change(mut reader: MessageReader<ModifyHealthMessage>) {
-    for ev in reader.read() { /* ... */ }
+fn cast_requests(mut reader: MessageReader<CastRequest>, /* ... */) {
+    for request in reader.read() { /* ... */ }
 }
 ```
 
@@ -175,9 +176,12 @@ fn apply_health_change(mut reader: MessageReader<ModifyHealthMessage>) {
 ```rust
 // ⚠️ 同一系统里同时用 MessageReader + MessageWriter 会资源冲突，
 //    读写同一消息类型必须用 MessageMutator。
-fn apply_crit(mut damage: MessageMutator<DamageRequest>) {
-    for msg in damage.read() {
-        msg.base_amount *= 2; // 就地改，后续读者看到的是改后的值
+// 现行设计里，数值改动不再靠"拦消息"，而是 `Contest` 的结果分支
+// （见 docs/combat-design.md §4）——所以这个模板目前没有代码用到，
+// 保留它是为了说明"需要就地改写时该怎么做"。
+fn amplify(mut requests: MessageMutator<CastRequest>) {
+    for request in requests.read() {
+        // 就地改，后续读者看到的是改后的值
     }
 }
 ```
@@ -284,8 +288,8 @@ app.add_observer(on_death);
 
 | 机制 | 后缀 | 例 |
 |---|---|---|
-| `Message`（缓冲、拉取） | `...Message` | `ModifyHealthMessage`、`ChunkDirtyMessage`、`VoxelSelectedMessage` |
-| 请求型 `Message` | `...Request` | `DamageRequest`（仍是 Message，只是语义上是"请求"） |
+| `Message`（缓冲、拉取） | `...Message` | `DetachStatusMessage`、`ChunkDirtyMessage`、`VoxelSelectedMessage` |
+| 请求型 `Message` | `...Request` | `CastRequest`（仍是 Message，只是语义上是"请求"） |
 | `Event` / `EntityEvent`（观察者、推送） | `...Event` | `DeathEvent`、`VoxelClickedEvent` |
 | Bevy 内建生命周期 | 用内建类型 | `On<Add, C>`、`On<Remove, C>`、`On<Despawn, C>` |
 

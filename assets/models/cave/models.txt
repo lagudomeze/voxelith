@@ -1,0 +1,49 @@
+# Kenney modular-cave-kit 的模型清单（每行一个，不含 .glb）
+#
+# 这套是**模块化网格件**：template-* 系列天生按网格对齐
+#   - template-floor      4x4 地板（世界单位 -2..2）
+#   - template-wall       4 宽 x 4.05 高
+#   - room-small          12x12x4.4
+#   ⇒ 1 个网格单位 = 2 世界单位。
+#
+# 与 assets/models/cave/*.glb 一一对应，由 model_gallery.rs 的测试核对。
+corridor
+corridor-corner
+corridor-end
+corridor-intersection
+corridor-junction
+corridor-transition
+corridor-wide
+corridor-wide-corner
+corridor-wide-end
+corridor-wide-intersection
+corridor-wide-junction
+gate
+gate-metal-bars
+gate-overhang
+gate-rock
+ladder
+room-corner
+room-large
+room-large-variation
+room-small
+room-small-variation
+room-wide
+room-wide-variation
+stairs
+stairs-wide
+template-corner
+template-detail
+template-floor
+template-floor-big
+template-floor-detail
+template-floor-detail-a
+template-floor-layer
+template-floor-layer-hole
+template-floor-layer-raised
+template-wall
+template-wall-corner
+template-wall-detail-a
+template-wall-half
+template-wall-stairs
+template-wall-top

@@ -11,7 +11,7 @@
       2. R91  cargo tree -p voxelith-axiom 不含 bevy_render/bevy_ui/bevy_sprite/bevy_pbr
       3. R92  cargo tree -p voxelith-axiom 不含 voxelith-prime
       4. R93  tokei：无源码文件 > 500 行（R26）
-      5. R5   voxelith-axiom 依赖白名单：bevy_ecs/bevy_app/bevy_reflect/bevy_time
+      5. R5   voxelith-axiom 依赖白名单：bevy_ecs/bevy_app/bevy_reflect/bevy_time/bevy_state + 登记制
       6. R95  每个 crate 入口文件顶部含规则注释
       7. R21/R96 源码中不出现 mod base/common/utils/helpers
       8. R104 源码中不出现 "scense"
@@ -161,6 +161,30 @@ else {
 $sourceFiles = Get-SourceFiles -Root $RepoRoot
 $rustFiles = $sourceFiles | Where-Object { $_.Extension -eq '.rs' }
 
+# ---- 生成物豁免（R93/R26）----
+# 带 `@generated` 标记的文件**不是手写源码**：目前是转码出来的像素数据
+# （角色精灵表 `hero_walk_rgba.rs`、Kenney UI 图块）。
+# 用**标记**而不是硬编码路径，这样豁免可审计：谁都能 grep 出哪些文件靠这条规则过关。
+#
+# 扫描前 20 行（而不是 12）：生成的图块文件里 `use super::Tile;` 会把标记挤到
+# 后面几行，12 行会漏掉 —— 漏掉的后果是**守卫失败**，不会静默放过，所以
+# 这里宽一点是安全的。
+$generated = @()
+$handWritten = @()
+foreach ($file in $rustFiles) {
+    $head = Get-Content -LiteralPath $file.FullName -TotalCount 20 -ErrorAction SilentlyContinue
+    if ($head -and (($head -join "`n") -match '@generated')) {
+        $generated += $file
+    } else {
+        $handWritten += $file
+    }
+}
+if ($generated.Count -gt 0) {
+    $names = ($generated | ForEach-Object { $_.Name }) -join ', '
+    Write-Host "      生成物豁免 $($generated.Count) 个文件（带 @generated 标记）：$names"
+    $rustFiles = $handWritten
+}
+
 if ($HasTokei) {
     $tokeiJson = & tokei --sort code --output json 2>$null
     if ($LASTEXITCODE -eq 0 -and $tokeiJson) {
@@ -216,10 +240,10 @@ else {
     $tomlText = Get-Content -LiteralPath $axiomToml -Raw
     $hits = @()
 
-    # R5（Q21 / Q23 修订）：bevy 家族严格白名单；非 bevy 工具 crate 走"登记制"——
+    # R5（Q21 / Q23 / Q26 修订）：bevy 家族严格白名单；非 bevy 工具 crate 走"登记制"——
     # 先登记进 docs/architecture.md 的表，再改 Cargo.toml，否则这里直接报未登记。
-    $bevyAllowed = @('bevy_ecs', 'bevy_app', 'bevy_reflect', 'bevy_time')
-    $registered = @('exn', 'derive_more')
+    $bevyAllowed = @('bevy_ecs', 'bevy_app', 'bevy_reflect', 'bevy_time', 'bevy_state')
+    $registered = @('exn', 'derive_more', 'serde')
     $inDependencies = $false
     foreach ($line in ($tomlText -split "`n")) {
         $trimmed = $line.Trim()

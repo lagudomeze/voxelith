@@ -1,1 +1,24 @@
 /target
+
+# t-engine4 是外部参考实现（自带 .git，不属于本仓库）
+/t-engine4
+
+# ---- 调试截图 ----
+#
+# ⚠️ **不要写 `*.png`。**
+#
+# 这里曾经就是 `*.png`，它把**所有贴图**一起忽略了：
+#
+#   assets/models/dungeon/Textures/colormap.png   ← GLB 的贴图是**外链**的
+#   assets/models/cave/Textures/colormap.png
+#   assets/models/platformer/Textures/colormap.png
+#   assets/sprites/hero.png
+#   assets/ui/kenney-adventure.png
+#
+# 后果：克隆仓库能拿到 `.glb`，但**没有贴图** ——
+# 模型加载成功、却因为没有贴图而渲染成一片黑，**而且不报错**。
+# （本项目的 GLB 发黑另有根因，见 work/TODO.md；但这条规则是同一类陷阱。）
+#
+# 所以只忽略**具体的截图目录**，**不按扩展名忽略**。
+/work/shots/
+.dsh/skills/brp-http/*.png

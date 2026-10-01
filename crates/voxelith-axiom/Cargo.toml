@@ -5,14 +5,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# 架构守卫（R5、R91）：本 crate 只允许 bevy_ecs / bevy_app / bevy_reflect / bevy_time。
+# 架构守卫（R5、R91）：本 crate 只允许 bevy_ecs / bevy_app / bevy_reflect / bevy_time / bevy_state。
 # 禁止添加完整 bevy 或任何渲染相关 crate（bevy_render / bevy_ui / bevy_sprite / bevy_pbr /
 # bevy_asset / bevy_transform / bevy_window）。
 # bevy_time 是 R5 的 2024 修订（Q21）：只提供时钟与 Duration，不引入渲染。
+# bevy_state 是同一类修订（Q26）：只提供 States / NextState，依赖里没有渲染。
 [dependencies]
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
 bevy_reflect = { workspace = true }
+bevy_state = { workspace = true }
 bevy_time = { workspace = true }
 derive_more = { workspace = true }
 exn = { workspace = true }
+# 登记制依赖（R5 / Q23）：只为 RON 描述结构派生 `Deserialize`，不含文件 IO。
+serde = { workspace = true }
+
+# 注意：这里**故意没有** features 段。曾经为了"发布时关掉 `bevy_ecs/debug`"加过一个
+# `ecs-debug` 默认 feature，但 `voxelith-prime` 继承本 crate 时特征会合并，
+# `--no-default-features` 关不掉它——那是个假开关，所以删了。
+# `bevy_ecs/debug` 统一在 workspace 的 `[workspace.dependencies.bevy_ecs]` 里开（含理由）。

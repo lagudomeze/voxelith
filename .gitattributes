@@ -17,3 +17,6 @@
 
 # Cargo.lock 是生成文件，但在 bin/应用仓库里应当提交（保证可复现构建）。
 Cargo.lock text eol=lf -diff
+# 字体与图集：二进制。
+*.ttf binary
+*.xml text eol=lf

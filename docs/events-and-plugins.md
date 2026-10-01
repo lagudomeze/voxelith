@@ -36,52 +36,52 @@ Bevy 0.19 把"事件"拆成了两套机制，规则里的"事件"**绝大多数*
 
 ### 4. 代码模板
 
-**定义 + 注册（发出方模块内）** —— `atoms/health.rs` / `atoms/mod.rs`
+**定义 + 注册（发出方模块内）** —— `behaviors/action/mod.rs`（现行示例）
+
+> 下面的形状仍然是规则要求的样子（谁定义谁注册、消息只含数据）。
+> 具体类型以代码为准：[`CastRequest`](../crates/voxelith-axiom/src/behaviors/action/mod.rs)
+> 定义在 `behaviors::action`，由 `ActionPlugin` 注册（**R33**、**R34**）。
 
 ```rust
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
-/// 纯数值血量变更：负数=伤害，正数=治疗。（R49、R51）
+/// 释放请求：L2 输入 / AI → L1。（R33）
 #[derive(Message, Debug, Clone, Copy)]
-pub struct ModifyHealthMessage {
-    pub entity: Entity,
-    pub amount: i32,
+pub struct CastRequest {
+    pub caster: Entity,
+    pub skill: Entity,
+    pub target: Option<Entity>,
 }
 
-/// 唯一允许修改 `Health` 的系统。（R56）
-pub fn apply_health_change(mut reader: MessageReader<ModifyHealthMessage>, mut healths: Query<&mut Health>) {
-    for ev in reader.read() {
-        if let Ok(mut h) = healths.get_mut(ev.entity) {
-            h.current = (h.current + ev.amount).clamp(0, h.max);
-        }
+/// 消费请求：校验 → 扣费 / 冷却 → 生成行动实例。
+pub fn cast_requests(
+    mut requests: MessageReader<CastRequest>,
+    mut commands: Commands,
+    mut params: CastParams,
+) {
+    for request in requests.read() {
+        // …校验与生成…
     }
 }
 
-pub struct HealthPlugin;
+pub struct ActionPlugin;
 
-impl Plugin for HealthPlugin {
+impl Plugin for ActionPlugin {
     fn build(&self, app: &mut App) {
         // 谁定义谁注册（R34）
-        app.add_message::<ModifyHealthMessage>()
-            .add_systems(Update, apply_health_change);
+        app.add_message::<CastRequest>();
     }
 }
-```
-
-**外部使用（re-export 是允许的，R37）** —— `atoms/mod.rs`
-
-```rust
-pub mod health;
-
-pub use health::{Health, HealthPlugin, ModifyHealthMessage};
 ```
 
 **跨模块监听（R38）** —— L2 无需知道谁注册了事件
 
 ```rust
-fn spawn_hit_flash(mut reader: MessageReader<DamageRequest>, /* ... */) {
-    for req in reader.read() { /* 表现层工作 */ }
+fn update_hud(mut log: ResMut<CombatLog>, /* ... */) {
+    for entry in log.entries() {
+        // 表现层工作（只读）
+    }
 }
 ```
 

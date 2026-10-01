@@ -28,7 +28,7 @@
 ### ③ 定义组件 / 事件
 
 - 组件用名词（R28）：`Threat`、`Armor`。
-- 事件用名词短语或过去式（R29）：`DamageRequest`、`AggroChanged`。
+- 事件用名词短语或过去式（R29）：`CastRequest`、`AggroChanged`。
 - 事件只含数据，不含渲染句柄（R9）。
 - 事件定义在**发出它的模块**（R33）。
 - **先按 [bevy-events.md](bevy-events.md) §2 判定用 Message 还是 Event，再定名字**：

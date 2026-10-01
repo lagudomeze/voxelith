@@ -1,0 +1,26 @@
+[package]
+name = "glb-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# 只要能加载 glTF 与渲染就够了。**不要**任何 voxelith 的东西 ——
+# 这个 crate 存在的意义就是"剥掉我们自己的代码之后，模型还黑不黑"。
+#
+# `bevy_gltf` **必须开**：`WorldAssetRoot` / `GltfAssetLabel` 都在它里面，
+# 不开的话编译期就找不到（而不是运行期报错）。
+#
+# `png` **也必须开** —— 这是我漏掉的一环，代价是好几轮排查：
+#
+#   这些 Kenney 模型的贴图是**外链 PNG**。没有 `png` feature 就没有 PNG 解码器，
+#   而 Bevy 在"找不到对应加载器"时的行为是：
+#     - **不报错**
+#     - `AssetServer::load_state` **永远停在 `Loading`**
+#     - `Assets<Image>` 里**永远不出现**这张图
+#   ⇒ 着色器采样拿到兜底值（黑），模型表现为"发黑、但高光仍在"
+#     （高光不依赖贴图，所以它照常出现 —— 这个组合正是最迷惑人的地方）。
+#
+# 这条值得单独记：**Bevy 缺加载器 ≠ 报错**。以后遇到"外链资产加载不出来、
+# 又完全没有错误日志"，第一件事就该查对应 feature 有没有开。
+bevy = { workspace = true, features = ["bevy_gltf", "debug", "png"] }

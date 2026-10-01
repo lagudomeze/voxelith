@@ -1,0 +1,50 @@
+# Kenney modular-dungeon-kit 的模型清单（每行一个，不含 .glb）
+#
+# 用户推荐：**地牢主题**，比 modular-cave-kit 更贴本项目。
+# 与 cave-kit **同构**（同样的 Kenney modular 系列规格）：
+#   - template-floor   4x4（世界单位 -2..2）
+#   - template-wall    4 宽 x 4.15 高
+#   - room-small       12x12x4.23
+#   - stairs           4.4 x 8.55 高（最高的一个）
+#   ⇒ 1 个网格单位 = 2 世界单位。
+#
+# 与 assets/models/dungeon/*.glb 一一对应，由 model_gallery.rs 的测试核对。
+corridor
+corridor-corner
+corridor-end
+corridor-intersection
+corridor-junction
+corridor-transition
+corridor-wide
+corridor-wide-corner
+corridor-wide-end
+corridor-wide-intersection
+corridor-wide-junction
+gate
+gate-door
+gate-door-window
+gate-metal-bars
+room-corner
+room-large
+room-large-variation
+room-small
+room-small-variation
+room-wide
+room-wide-variation
+stairs
+stairs-wide
+template-corner
+template-detail
+template-floor
+template-floor-big
+template-floor-detail
+template-floor-detail-a
+template-floor-layer
+template-floor-layer-hole
+template-floor-layer-raised
+template-wall
+template-wall-corner
+template-wall-detail-a
+template-wall-half
+template-wall-stairs
+template-wall-top

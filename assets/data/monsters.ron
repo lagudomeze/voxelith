@@ -1,0 +1,46 @@
+[
+    (
+        id: "goblin",
+        name: "哥布林",
+        // 引擎角色：自己攒能量、跑 AI。（漏写会直接解析失败，不给默认值。）
+        role: Monster,
+        resources: [("hp", 30), ("action", 1)],
+        stats: [("strength", 6), ("armor", 2), ("agility", 5)],
+        ai: [
+            (skill: "goblin_slash", when: Always, weight: 1.0),
+            (skill: "goblin_flee",  when: ResourceBelow(pool: "hp", ratio: 0.35), weight: 5.0),
+        ],
+        energy_rate: 1.0,
+        energy_threshold: 3.0,
+        // 阵营：谁打谁。
+        faction: Monster,
+        // 特性：跨阵营的性状（亡灵 / 构装体 / 野兽）。哥布林是野兽。
+        traits: [Beast],
+    ),
+    (
+        // **`Faction::Neutral` 的内容用例**。
+        //
+        // 作用是让"中立"这条阵营规则有真实数据在走：
+        // - `Faction::hostile_to` 里 `Neutral` 对任何人都不敌对；
+        // - `Requirement::TargetIsEnemy` 因此对它**永远不成立** ——
+        //   所以它的技能指向自己（`SelfOnly`），一个敌人都打不到。
+        //
+        // 这不是"少写了一个攻击技能"：**中立单位就不该有攻击技能**。
+        // 它站在战场上是为了被看见、被效果作用（治疗 / 驱散 / 对话），
+        // 而不是参与交换伤害。将来接商店 / 任务时，它的身份就是入口。
+        //
+        // 名字故意不用"游商"之外的称号：它是**唯一的**内容里带中立阵营的单位，
+        // 所以任何"中立被误当敌人打"的回归都会先在它身上暴露。
+        id: "wandering_merchant",
+        name: "游商",
+        role: Monster,
+        resources: [("hp", 20), ("action", 1)],
+        stats: [("strength", 1), ("armor", 0), ("agility", 2)],
+        ai: [(skill: "merchant_cower", when: Always, weight: 1.0)],
+        energy_rate: 1.0,
+        energy_threshold: 3.0,
+        faction: Neutral,
+        // 没有 `traits`：它不是亡灵 / 构装体 / 野兽，只是一个普通人。
+        traits: [],
+    ),
+]

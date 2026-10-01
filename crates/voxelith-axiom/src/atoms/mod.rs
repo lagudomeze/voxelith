@@ -10,20 +10,13 @@
 //!
 //! | 模块 | 内容 |
 //! |---|---|
-//! | [`stats`] | 属性（`Stat` / `StatBlock` / `StatId` / `StatModifiers`）与等级（`Level` / `LevelConfig`） |
-//! | [`modifiers`] | 修饰符数据 + 聚合公式（纯数据 + 纯算法，无组件；供 stats 与 resistance 共用） |
-//! | [`health`] | 血量（唯一写入口 + `ModifyHealthMessage`） |
+//! | [`actor`] | 角色三大数据类别：资源池 [`actor::Resources`] / 属性 [`actor::Stats`] / 状态标记 [`actor::ActorState`]，以及冷却、行动能量、阵营标记 |
 //!
-//! 详见 `docs/layers.md`、`docs/combat-mechanics.md`。
+//! 详见 [docs/combat-design.md](../../../docs/combat-design.md)、[docs/layers.md](../../../docs/layers.md)。
 
-pub mod health;
-pub mod stats;
+pub mod actor;
 
-pub use health::{Health, HealthPlugin, ModifyHealthMessage, apply_health_change};
-pub use stats::{
-    AddStatModifierMessage, AllocateStatRequest, DEFAULT_STAT, GrantStatPointsMessage, Level,
-    LevelConfig, LevelCurve, RemoveStatModifiersMessage, RespecStatsMessage, Stat,
-    StatAllocatedMessage, StatAllocationFailedMessage, StatBlock, StatConfig, StatError, StatId,
-    StatModifiers, StatPlugin, StatStage,
+pub use actor::{
+    ActionEnergy, Actor, ActorPlugin, ActorRole, ActorState, ActorTag, ActorTags, Cooldowns,
+    Faction, Monster, Player, Pool, Resources, StatModifier, Stats,
 };
-pub use stats::{Modifier, ModifierCaps, ModifierOp, ModifierSet};

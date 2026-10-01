@@ -3,10 +3,10 @@
 ## 1. 模块命名
 
 - 模块按**功能领域**命名，不按技术角色命名。（R20、R115）
-  - 好：`combat`、`health`、`movement`、`targeting`、`skills`、`world`、`voxel_render`、`interaction`、`presentation`
+  - 好：`combat`、`actor`、`action`、`effect`、`status`、`content`、`targeting`、`world`、`voxel_render`、`presentation`
   - 坏：`components`、`systems`、`events`、`managers`、`handlers`（在顶层按角色切分）
 - 禁止 `base` / `common` / `utils` / `helpers` 作为模块名。（R21、R96）
-  - 需要共享时，把类型**下沉到它真正的归属领域**（例：`Lifetime` → 通用实体生命周期领域，R61、R63）。
+  - 需要共享时，把类型**下沉到它真正的归属领域**（例：`Value` 表达式 → `behaviors::value`，R61、R63）。
 - 不使用 `scense` 命名，统一用 `presentation`，避免与 Bevy `Scene` 混淆。（R22、R104）
   - 若确实要指"场景文件/关卡"，用 `levels`、`worlds`、`map` 等不与 Bevy 类型冲突的词。
 
@@ -34,26 +34,26 @@
 
 ```
 crates/voxelith-axiom/src/atoms/
-    mod.rs          # pub mod health; 以及必要的小组件定义
-    health.rs       # Health 组件 + ModifyHealthMessage + apply 系统
+    mod.rs          # pub mod actor; 以及必要的小组件定义
+    actor.rs        # Resources / Stats / Cooldowns 等组件 + ActorPlugin
 ```
 
 中等模块（150 ~ 500 行）：
 
 ```
-crates/voxelith-axiom/src/behaviors/combat/
-    mod.rs          # 模块说明、re-export、CombatPlugin
-    systems.rs      # 公式系统、事件转发系统
+crates/voxelith-axiom/src/behaviors/action/
+    mod.rs          # 模块说明、re-export、ActionPlugin
+    casting.rs      # CastParams + cast_requests（释放校验）
 ```
 
 大模块（> 500 行）：
 
 ```
-crates/voxelith-axiom/src/behaviors/combat/
-    mod.rs          # 对外 API、re-export、CombatPlugin
-    components.rs   # DamageType、Armor 等组件
-    events.rs       # DamageRequest、ModifyHealthMessage 转发定义
-    systems.rs      # 命中/闪避/减伤公式系统
+crates/voxelith-axiom/src/behaviors/effect/
+    mod.rs          # 对外 API：Effect 枚举 + execute_effect
+    apply.rs        # 世界突变落点：改池 / 加摘状态 / 状态槽
+    blob.rs         # Blob trait + Reads（只读查询集合）
+    params.rs       # EffectParams（SystemParam 组合）
 ```
 
 > 注意：R36 禁止"集中在一个 `events.rs` 注册所有事件"。这里 `events.rs` 只是**同一个模块内部**的文件切分，注册仍在 `CombatPlugin::build` 里。（见 [events-and-plugins.md](events-and-plugins.md)）

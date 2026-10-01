@@ -30,7 +30,8 @@
 
 判断一个东西是不是 L0：**把这个组件单独拿出来，它的系统能不能只靠它自己跑通？** 能 → L0。
 
-L0 的典型成员：`Health`、`Lifetime`（R61、R63）、纯数值事件定义与执行系统。
+L0 的典型成员：`Resources`（资源池 + 唯一写入口 + 自然恢复）、`Stats`（属性账本 + 修饰符槽 + 最终值视图）、
+`Cooldowns`、`ActorState`、`ActionEnergy`、纯数值消息定义与执行系统。
 
 ## 3. L1：behaviors
 
@@ -50,11 +51,16 @@ L0 的典型成员：`Health`、`Lifetime`（R61、R63）、纯数值事件定�
 
 ### 为什么 L1 不能直接改 L0
 
-如果 L1 能直接写 `Health`，那么"谁改了血量"就不可追踪，L0 的"唯一写入口"保证失效（R56）。事件是**唯一通道**，好处是：
+如果 L1 能直接写池，那么"谁改了血量"就不可追踪，L0 的"唯一写入口"保证失效（R56）。事件是**唯一通道**，好处是：
 
-1. 所有数值变化都留下一条可观察的记录。
+1. 所有数值变化都留下一条可观察的记录（战斗日志 `CombatLog` 就是这条通道的产物）。
 2. 表现层可以旁路监听（R55）。
 3. 公式可以层层拦截修改（R54）。
+
+> **实现现状（半即时战斗）**：伤害/治疗不再走"发消息 → L0 执行"的老链路，而是
+> **`Effect::ModifyResource`** 通过 `Commands` 把改好的组件写回实体——池的写入口仍然是
+> `Resources::modify`（唯一），L1 不直接碰组件字段。契约没变，只是通道从"消息"换成"效果原语"。
+> 见 [combat-design.md](combat-design.md) §3.3。
 
 ## 4. L2：prime
 
@@ -63,22 +69,30 @@ L0 的典型成员：`Health`、`Lifetime`（R61、R63）、纯数值事件定�
 - 只读 L0/L1 数据，通过事件监听变化。（R15）
 - 使用完整 Bevy、渲染组件、UI。（R18）
 - 拥有驱动源：输入、AI 决策、场景编排。
+- **读写文件、反序列化内容**：`content` 模块用 `ron` 把 `.ron` 解析成描述结构，
+  再交给 L1 的解析器（**R101 精神**：文件系统只出现在 L2）。
 
 禁止：
 
-- 禁止直接修改 `Health`、`Velocity` 等核心数据。（R16）
+- 禁止直接修改 `Resources` 里的池、`Stats` 等核心数据。（R16）
 - 禁止写战斗公式、伤害计算。（R17）
 - 禁止越界反向定义核心规则（"因为表现需要，所以在 L2 里算一下伤害"是典型违规）。
+
+### 两种时间
+
+- **逻辑系统读 `Res<Time>`**（虚拟时间）：冻结相位下 `delta = 0`，所以它们**不需要知道相位**。
+- **UI / 动画读 `Res<Time<Real>>`**（真实时间）：暂停时菜单、光标仍然要动。
+  详见 [combat-design.md](combat-design.md) §6。
 
 ## 5. 越界速查
 
 | 想做的事 | 错误做法 | 正确做法 |
 |---|---|---|
-| L2 想让怪物掉血 | 直接 `*health = ...` | 发 `DamageRequest`，等 L1 → L0 处理 |
-| L1 想改血量 | 直接改 `Health` | 发 `ModifyHealthMessage`，由 L0 `health` 执行 |
+| L2 想让怪物掉血 | 直接写 `Resources` | 发 `CastRequest`，等 L1 走 `Effect` 改池 |
+| L1 想改池 | 直接改组件字段 | 走 `Effect::ModifyResource`；池的唯一写入口是 `Resources::modify` |
 | L1 想显示命中特效 | 在 L1 生成 `SpriteBundle` | L1 发事件；L2 监听并生成表现 |
 | L0 想读位置做判定 | 查询 `Transform` / 其它组件 | 位置由 L0 自己的组件承载；判定放 L1 |
-| L2 想算减伤 | 在 L2 写公式 | 公式属于 L1，L2 只读结果与事件 |
+| L2 想算减伤 | 在 L2 写公式 | 公式属于 L1（`Contest` + 内容配置），L2 只读结果与日志 |
 
 ## 6. 命名与组织总则
 
@@ -107,14 +121,25 @@ L0 的典型成员：`Health`、`Lifetime`（R61、R63）、纯数值事件定�
 
 ## 9. 配置与数据约定（I6）
 
-- **所有可调参数都放 Resource**（`XxxConfig`），不写死在系统里：`StatConfig`、`ModifierCaps`、
-  `ResistanceCaps`、`PipelineConfig`、`RollConfig`、`StatusConfig`、`ContestParams`、`LevelConfig`。
-- 各 L1 域的配置由内容层聚成一份 `CombatConfig` 注入，`CombatPlugin` 分发到子域；
-  子域自己的 `init_resource` 只在"独立使用 / 单测"时兜底（`insert_resource` 先执行时不会被覆盖）。
+内容分两层，判断标准是**"这个集合会随游戏内容增长吗"**：
+
+| 会增长吗 | 放哪 | 例子 |
+|---|---|---|
+| 会（内容） | `.ron` 文件，L2 读进来、L1 解析成 ID | 技能、状态、资源池与属性定义、怪物与 AI |
+| 不会（引擎能力） | Rust 枚举 / `XxxConfig`（Resource） | `Value` / `Effect` / `Requirement` / `Formula`、随机种子 |
+
+- **引擎级可调参数**放 `XxxConfig`（如 `CombatConfig`、`VirtualTimeConfig`），由内容层注入后
+  `CombatPlugin` 分发；子域自己的 `init_resource` 只在"独立使用 / 单测"时兜底。
 - **L0/L1 不读文件、不碰 `AssetServer`**（R101 精神）：文件加载与反序列化都在 L2，
-  读完把值塞进 Resource。这样 L0/L1 仍然能在无渲染、无文件系统的环境里跑测试。
-- 事件定义在**发出它的模块**（R33）；但**改 L0 数据的入口消息定义在 L0**（如 `ModifyHealthMessage`、
-  `GrantStatPointsMessage`），由 L1/L2 发出——契约属于数据的拥有者。
-- **组件自成一体**：如果最终值只依赖组件自己的字段（`Stat`、`Resistance`），就让组件在收到变更消息后
-  **自己刷新缓存**，不要造"脏了 / 算好了"的来回消息。只有"必须别的组件同时在场才能算"的部分才放 L1。
-  判断标准很简单：**公式需要的信息如果都在这个组件里，它就不需要跨层**（R8 自然成立）。
+  读完把描述结构交给 L1 的解析器（`behaviors::content::loader`）。
+  这样 L0/L1 仍然能在无渲染、无文件系统的环境里跑测试。
+  - 目录类 Resource（`Vocab` / `SkillCatalog` / `StatusCatalog`）是**可缺席**的：
+    没注入时 `Effect::SpawnAction` / `Effect::ApplyStatus` 自然什么都不做，而同一技能里
+    "改池 / 写日志"这类效果照常执行。这让 L1 单测不必先造一份假内容。
+- 事件定义在**发出它的模块**（R33）；例如 `CastRequest` 定义在 `behaviors::action`
+  并由 `ActionPlugin` 注册（R34）。
+- **组件自成一体**：如果最终值只依赖组件自己的字段（`Stats`），就让组件在变更后
+  **自己刷新缓存**（`Stats::refresh`），不要造"脏了 / 算好了"的来回消息。
+  只有"必须别的组件同时在场才能算"的部分才放 L1——例如状态的数值效果要读好几个组件，
+  就由 `behaviors::status::apply_status_modifiers` 每帧把状态**派生**成 `StatModifier` 再写回
+  `Stats`（**状态 → 修饰符**，而不是"状态 = 修饰符"）。

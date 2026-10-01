@@ -1,0 +1,24 @@
+(
+    resources: [
+        (id: "hp",       name: "生命", max: 100, regen: 0.0),
+        (id: "mana",     name: "法力", max: 50,  regen: 1.0),
+        (id: "action",   name: "行动", max: 1,   regen: 0.0, start_full: true),
+        (id: "reaction", name: "反应", max: 3,   regen: 0.5),
+    ],
+    stats: [
+        (id: "strength", name: "力量"),
+        (id: "armor",    name: "护甲"),
+        (id: "agility",  name: "敏捷"),
+    ],
+    statuses: [
+        (id: "guarding",  name: "格挡"),
+        (id: "stunned",   name: "眩晕"),
+        (id: "poison",    name: "中毒"),
+        (id: "rage",      name: "狂暴"),
+        // 下面两个是 `Stacking::Ignore` / `Stacking::Replace` 的内容用例
+        // （见 `statuses.ron`）。**状态必须先在这里登记**，否则加载期直接报
+        // "unknown status name" —— 这是刻意的：名字解析只在加载期做一次。
+        (id: "staggered", name: "踉跄"),
+        (id: "burning",   name: "灼烧"),
+    ],
+)

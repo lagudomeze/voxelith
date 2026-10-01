@@ -1,5 +1,25 @@
 # 战斗系统设计（R47–R63）
 
+> ## ⚠️ 结构已被取代
+>
+> 本文的**分层与命名原则仍然有效**（哪个模块干什么、L2 不写公式、表现只监听事件），
+> 但"伤害流水线"的具体结构（`DamageRequest` → 管线 → `ModifyHealthMessage` →
+> `atoms::health`）已在半即时战斗重构中换成
+> [combat-design.md](combat-design.md) 的 **`Effect` + `Contest` + 资源池**。
+>
+> 读本文时请把下面这些名字做一次替换：
+>
+> | 本文 | 现行 |
+> |---|---|
+> | `DamageRequest` | `CastRequest`（释放）→ `Effect::Contest`（判定） |
+> | `ModifyHealthMessage` / `atoms::health` | `Effect::ModifyResource { pool: "hp", .. }` / `atoms::actor::Resources` |
+> | `formula` 模块（拦截式转发） | `Contest`（`attacker` / `defender` / `threshold` / 结果分支） |
+> | 表现监听 `DamageRequest` | 表现读 `CombatLog` 与 `AvailableSkills` / `ActiveActions`（[combat-design.md](combat-design.md) §3.3） |
+>
+> 下面正文保留原样，方便对照取舍过程。
+
+**没有** `DamageRequest`：伤害 = 对抗成功后的资源修改（见 [combat-design.md](combat-design.md)）。
+
 ## 1. 分工总览
 
 | 模块 | 层 | 只做这些事 | 绝不做的 |

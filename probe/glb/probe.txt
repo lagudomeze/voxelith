@@ -1,0 +1,9 @@
+2026-10-01T09:02:54.533271Z  INFO bevy_diagnostic::system_information_diagnostics_plugin::internal: SystemInfo { os: "Windows 11 Pro for Workstations", kernel: "26300", cpu: "AMD Ryzen 5 7500F 6-Core Processor", core_count: "6", memory: "31.6 GiB" }
+2026-10-01T09:02:54.822283Z  INFO bevy_render::renderer: AdapterInfo { name: "NVIDIA GeForce RTX 4070 Ti SUPER", vendor: 4318, device: 9989, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "616.64", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: false }
+2026-10-01T09:02:55.304051Z  INFO bevy_pbr::cluster: GPU clustering is supported on this device.
+2026-10-01T09:02:55.306990Z  INFO bevy_render::batching::gpu_preprocessing: GPU preprocessing is fully supported on this device.
+2026-10-01T09:02:55.309191Z  INFO bevy_winit::system: Creating new window glb-probe（中键拖动=平移，滚轮=缩放，右键拖动=转视角，R=复位） (65v0)
+2026-10-01T09:02:55.334378Z  INFO glb_probe: glb-probe：加载 models/template-floor.glb；相机 正交/视野宽 6.0/俯角 45°/方位角 45°；平行光 12000 / 环境光 60
+2026-10-01T09:02:55.334724Z ERROR bevy_asset::server: Path not found: D:\work\rust\voxelith\target\debug\assets\models/template-floor.glb
+2026-10-01T09:02:55.335462Z  WARN bevy_render::camera: Entity 372v0 has a `Camera` component, but it doesn't have a render graph configured. Usually, adding a `Camera2d` or `Camera3d` component will work.
+        However, you may instead need to enable `bevy_core_pipeline`, or may want to manually add a `CameraRenderGraph` component to create a custom render graph.

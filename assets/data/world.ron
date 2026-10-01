@@ -1,0 +1,72 @@
+// 体素世界：地形参数 + 方块表。
+//
+// 方块表的**顺序即 ID**，`0` 恒为空气（不要写进来）。
+// 贴图用"颜色 + 图案"描述，由 L2 程序化生成图集——加一种方块依然只改这个文件。
+(
+    terrain: (
+        base_height: 0,
+        // 战场要"薄而平"：起伏只有 ±2 格，俯视角一眼看得完。
+        amplitude: 2.0,
+        height: (
+            frequency: 0.055,
+            octaves: 3,
+            lacunarity: 2.0,
+            persistence: 0.5,
+            seed: 20260930,
+        ),
+        soil_depth: 3,
+        surface: "grass",
+        soil: "dirt",
+        deep: "stone",
+        floor_y: -6,
+    ),
+
+    // 纸片人（角色精灵）在世界里的摆放。
+    //
+    // `world_size` 是**精灵的世界尺寸**（世界单位，1 单位 = 1 个体素）。
+    // 它经 `SpriteMesh.custom_size` 生效，屏幕像素 = world_size x (窗口宽 / view_width)。
+    //
+    // 当前取值是对照 Elin 的规格标定出来的
+    // （[Elin 的 PCC 是 32x48](https://elin-modding-resources.github.io/Elin.Docs/articles/15_Texture%20Mods/pcc)，
+    // 地面格 64 宽 x 32 高）：
+    //   - view_width 64 ⇒ 一格约 20 px（1280 窗口 ⇒ 约 64 格可见）；
+    //   - world_size 26 ⇒ 角色约 20x28 px，即**约 1 格宽**。
+    //
+    // **换成别的取景或别的素材后必须重新标定** —— 这两个数是一对。
+    // `height` 是精灵在水面 / 地表之上的抬升（世界单位）。
+    sprite: (
+        world_size: 26.0,
+        height: 1.6,
+    ),
+
+    blocks: [
+        (
+            id: "grass",
+            side: (base: (134, 110, 76), pattern: Speckle(amount: 14)),
+            // `Option` 字段在 RON 里要显式写 `Some(..)`。
+            top: Some((base: (104, 156, 68), pattern: Topped(rows: 3, amount: 20))),
+            opaque: true,
+        ),
+        (
+            id: "dirt",
+            side: (base: (126, 96, 62), pattern: Speckle(amount: 22)),
+            opaque: true,
+        ),
+        (
+            id: "stone",
+            side: (base: (128, 128, 132), pattern: Speckle(amount: 18)),
+            opaque: true,
+        ),
+        (
+            id: "sand",
+            side: (base: (196, 178, 122), pattern: Speckle(amount: 10)),
+            opaque: true,
+        ),
+        (
+            id: "wood",
+            side: (base: (124, 92, 54), pattern: Stripes(spacing: 3, amount: 16)),
+            top: Some((base: (156, 124, 78), pattern: Stripes(spacing: 2, amount: 10))),
+            opaque: true,
+        ),
+    ],
+)

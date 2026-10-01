@@ -1,7 +1,25 @@
-# ./Cargo.toml
 [workspace]
 resolver = "2"
 members = [
+    "crates/voxelith-axiom",
+    "crates/voxelith-prime",
+    "probe/*"
+]
+
+# **`default-members`：把 probe 排除在"默认构建"之外。**
+#
+# 为什么需要它：`probe/glb` 是**排查工具**，不是产品代码，它依赖 `bevy_gltf`
+# （主 crate 现在也开了这个 feature，但依赖面仍然不同）。
+# 不排除的话，根目录一句 `cargo build` / `cargo test` 就会连带编译它 ——
+# 而两个 crate 的 feature 组合不同，会**反复互相顶掉对方的编译产物**，
+# 表现为"每次切来切去都在重新编译 bevy"。
+#
+# 排除之后：
+#   `cargo build`          → 只构建 voxelith-axiom + voxelith-prime
+#   `cargo build -p glb-probe` → 单独构建探针（与主构建共享 target 缓存）
+#
+# 注意 `cargo test --workspace` **会**包含它（那是显式的全量）。
+default-members = [
     "crates/voxelith-axiom",
     "crates/voxelith-prime",
 ]
@@ -18,17 +36,47 @@ bevy = "0.19"
 exn = "0.3"
 derive_more = { version = "2", features = ["display", "error"] }
 
+# axiom：只为了给 RON 描述结构派生 `Deserialize`（引擎自己不读文件，读文件是 L2 的事）。
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+
+# prime（L2）：真正读 `.ron` 文件的那一层（R101 精神：加载与反序列化都在 L2）。
+ron = "0.12"
+
+# ICU 分词器：
+icu_segmenter = { version = "2.3", features = ["compiled_data"] }
+icu_provider = { version = "2.2.0", features = ["logging"] }
+
+
 [workspace.dependencies.bevy_app]
 version = "0.19"
 
 [workspace.dependencies.bevy_ecs]
 version = "0.19"
+# `debug` 打开后 B0001（查询访问冲突）之类的运行时报错会带上系统名与组件名，
+# 否则只打印 `<Enable the debug feature to see the name>`。
+#
+# 它**一直是开的**（含发布构建），因为：
+#   - 报错名是"系统顺序 / 查询冲突"这类问题的第一手线索，价值很高；
+#   - 它本来就挂在 `bevy_ecs` 的默认特性里，额外成本很小。
+#
+# 试过两种"发布关掉"的写法，都不成立，所以不提供开关（不留骗人的旋钮）：
+#   1. `[profile.*.package.bevy_ecs] features = [...]` —— **Cargo 不支持**，
+#      manifest 会报 `unused manifest key: profile.*.package.bevy_ecs.features`；
+#   2. 在 `voxelith-axiom` 上加默认 feature —— `voxelith-prime` 继承依赖时特征会合并，
+#      `--no-default-features` 关不掉它。
+# 真要裁掉时，直接删这一行。
+features = ["debug"]
 
 [workspace.dependencies.bevy_reflect]
 version = "0.19"
 
 # R5 修订（Q21）：axiom 允许用时间推进（Time/Duration），但不含任何渲染/资产/窗口 crate。
 [workspace.dependencies.bevy_time]
+version = "0.19"
+
+# R5 修订（Q26）：axiom 允许用 Bevy 的状态机（States / NextState）。
+# 它只依赖 bevy_ecs / bevy_app / bevy_reflect / bevy_platform，与渲染无关。
+[workspace.dependencies.bevy_state]
 version = "0.19"
 
 # 调试设施只允许 prime（L2）使用，禁止进入 axiom（R5、R91、R99）。

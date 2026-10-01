@@ -14,9 +14,29 @@ inspector = ["dep:bevy-inspector-egui"]
 # L2 允许完整 bevy（R6、R18）。
 # - `bevy_remote`：BRP 服务器，供 AI / 脚本通过 HTTP 访问组件数据。
 # - `debug`：组件/类型名可用；缺了它组件名会打印成 FEATURE_DISABLED，检查器看起来是空的。
-bevy = { workspace = true, features = ["bevy_remote", "debug"] }
+# - `png`：`AssetServer` 加载 `.png`（UI 图集、精灵表、**GLB 的外链贴图**）。
+# - `bevy_gltf`：加载 `.glb` 模型（Kenney 的 3D 套件都是这个格式）。
+bevy = { workspace = true, features = ["bevy_remote", "debug", "png", "bevy_gltf"] }
 bevy_brp_extras = { workspace = true }
 bevy-inspector-egui = { workspace = true, optional = true }
+# 内容加载：读 `.ron` 文件并解析。**只允许出现在 L2**（R101 精神）——
+# `axiom` 只提供描述结构与词汇映射，自己不碰文件系统。
+ron = { workspace = true }
+# 存档要序列化（save.rs）。与 axiom 用**同一个** serde 声明：
+# 两处版本/特性不一致会导致 VoxelId 的派生 trait 对不上。
+serde = { workspace = true }
+icu_segmenter = { workspace = true }
+icu_provider = { workspace = true }
 
 [dependencies.voxelith-axiom]
 workspace = true
+
+[dev-dependencies]
+# **只给测试用**：`gltf_material` 的回归测试要**直接读 GLB 的 JSON chunk**
+# 来验证根因（两组反向法线共用位置 + `doubleSided: true`），
+# 而不是断言我自己的一个 bool。
+#
+# 为什么值得引入：这个 bug 的表现（"发黑、调光无效、有高光"）
+# **完全不像**根因（共面三角形 z-fighting）。能读原始数据验证根因，
+# 比"断言 unlit == true"有说服力得多。
+serde_json = "1"

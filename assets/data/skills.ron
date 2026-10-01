@@ -1,0 +1,310 @@
+[
+    (
+        id: "basic_attack",
+        roles: [Player],
+        name: "普通攻击",
+        icon: "attack.png",
+        tags: [ATTACK],
+        duration: 1.0,
+        requirements: [
+            Resource(pool: "action", min: 1.0),
+            NoActiveAction,
+        ],
+        costs: [(pool: "action", amount: 1.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), Literal(5.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 5.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(
+                            pool: "hp",
+                            delta: Neg(SkillPower),
+                            who: Target,
+                        ),
+                        Log(text: "命中！"),
+                    ]),
+                    (Crit, [
+                        ModifyResource(
+                            pool: "hp",
+                            delta: Neg(Mul(SkillPower, Literal(1.5))),
+                            who: Target,
+                        ),
+                        Log(text: "重击！"),
+                    ]),
+                    (Fail, [Log(text: "被挡下了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        id: "riposte",
+        roles: [Player],
+        name: "反击",
+        icon: "riposte.png",
+        tags: [COUNTER],
+        duration: 0.0,
+        requirements: [
+            HasThreat,
+            Resource(pool: "reaction", min: 1.0),
+        ],
+        costs: [(pool: "reaction", amount: 1.0)],
+        targeting: ThreatSource,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("agility"), Resource(pool: "reaction", who: Caster)]),
+                defender: TargetStat("strength"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        DispelAction(who: Target),
+                        Contest((
+                            attacker: Sum([CasterStat("strength"), Literal(8.0)]),
+                            defender: TargetStat("armor"),
+                            formula: Difference,
+                            threshold: 0.0,
+                            crit_margin: 0.0,
+                            outcomes: [
+                                (Success, [
+                                    ModifyResource(pool: "hp", delta: Neg(Literal(12.0)), who: Target),
+                                    Log(text: "你招架并反击！"),
+                                ]),
+                                (Fail, [
+                                    ModifyResource(pool: "hp", delta: Neg(Literal(3.0)), who: Target),
+                                    Log(text: "你招架住了，但没能反击。"),
+                                ]),
+                            ],
+                        )),
+                    ]),
+                    (Fail, [
+                        Log(text: "反制失败。"),
+                        ModifyResource(pool: "hp", delta: Neg(Literal(5.0)), who: Caster),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        id: "shield_block",
+        roles: [Player],
+        name: "盾牌格挡",
+        icon: "block.png",
+        tags: [GUARD],
+        duration: 2.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "action", min: 1.0),
+        ],
+        costs: [(pool: "action", amount: 1.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "guarding", duration: Literal(2.0), who: Caster),
+        ],
+    ),
+    (
+        id: "goblin_slash",
+        roles: [Monster],
+        name: "哥布林劈砍",
+        icon: "goblin_slash.png",
+        tags: [ATTACK],
+        duration: 1.0,
+        requirements: [
+            Resource(pool: "action", min: 1.0),
+            NoActiveAction,
+        ],
+        costs: [(pool: "action", amount: 1.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), Literal(3.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(SkillPower), who: Target),
+                        Log(text: "哥布林砍中了你！"),
+                    ]),
+                    (Fail, [Log(text: "哥布林的攻击落空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        id: "goblin_flee",
+        roles: [Monster],
+        name: "哥布林逃窜",
+        icon: "goblin_flee.png",
+        tags: [MOVEMENT],
+        duration: 1.0,
+        requirements: [
+            Resource(pool: "action", min: 1.0),
+            NoActiveAction,
+        ],
+        costs: [(pool: "action", amount: 1.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "guarding", duration: Literal(3.0), who: Caster),
+            Log(text: "哥布林缩起身子。"),
+        ],
+    ),
+    (
+        id: "fire_bolt",
+        roles: [Player],
+        name: "火焰箭",
+        icon: "fire_bolt.png",
+        tags: [SPELL, ATTACK],
+        duration: 1.5,
+        requirements: [
+            Resource(pool: "mana", min: 5.0),
+            NoActiveAction,
+        ],
+        costs: [(pool: "mana", amount: 5.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("agility"), Literal(10.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(15.0)), who: Target),
+                        ApplyStatus(status: "poison", duration: Literal(3.0), who: Target),
+                        Log(text: "火焰吞没了目标！"),
+                    ]),
+                    (Fail, [Log(text: "火焰箭偏了。")]),
+                ],
+            )),
+        ],
+    ),
+    // ---- 下面两个是**引擎分支的内容用例** ----
+    (
+        // `Formula::RollUnder` 的**唯一内容用例**。
+        //
+        // 语义（见 `contest.rs`）：`roll = attacker * rand()`，
+        // `roll < threshold` 成功、`roll < threshold * 0.05` 是暴击、
+        // `roll >= attacker` 是**失手**。
+        //
+        // 所以这里的读法是：
+        // - `attacker` 是**掷骰的上界**（越大越容易落在 threshold 以下）；
+        // - `threshold` 是**成功率的目标值**（不是百分比）。
+        //
+        // 盾击的取舍：力量 6 的哥布林掷出 [0,16)，threshold 5 ⇒ 约 31% 眩晕；
+        // 力量高的角色打同一个目标更容易眩晕 —— 这正是"用属性换控制"的表达。
+        id: "shield_bash",
+        roles: [Player],
+        name: "盾击",
+        icon: "shield_bash.png",
+        tags: [ATTACK],
+        duration: 1.2,
+        requirements: [
+            Resource(pool: "action", min: 1.0),
+            NoActiveAction,
+        ],
+        costs: [(pool: "action", amount: 1.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), Literal(10.0)]),
+                defender: TargetStat("armor"),
+                formula: RollUnder,
+                threshold: 5.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(2.0), who: Target),
+                        Log(text: "盾牌正中面门，对手懵了！"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(4.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(1.0), who: Target),
+                        Log(text: "盾击命中，对手踉跄了一下。"),
+                    ]),
+                    (Fumble, [Log(text: "盾牌脱手了！")]),
+                    (Fail, [Log(text: "盾击被卸开了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // `Stacking::Replace`（灼烧）与 `Stacking::Ignore`（踉跄）的用例。
+        //
+        // 一次施加同时挂两种**不同叠加规则**的状态，这样"叠加规则确实按
+        // 每个状态自己的配置走"这件事有了真实数据可测
+        // （而不是只靠 `status.rs` 的单测）。
+        id: "cinder_burst",
+        roles: [Player],
+        name: "余烬爆",
+        icon: "cinder_burst.png",
+        tags: [SPELL, ATTACK],
+        duration: 1.4,
+        requirements: [
+            Resource(pool: "mana", min: 8.0),
+            NoActiveAction,
+        ],
+        costs: [(pool: "mana", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("agility"), Literal(8.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 4.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(5.0)), who: Target),
+                        // `Replace`：再中一次是"新的 1 层"，不是叠到 2 层。
+                        ApplyStatus(status: "burning", duration: Literal(4.0), who: Target),
+                        // `Ignore`：已经踉跄时再中**无效**（时长不会延长）。
+                        ApplyStatus(status: "staggered", duration: Literal(3.0), who: Target),
+                        Log(text: "余烬在目标身上炸开！"),
+                    ]),
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(12.0)), who: Target),
+                        ApplyStatus(status: "burning", duration: Literal(4.0), who: Target),
+                        ApplyStatus(status: "staggered", duration: Literal(3.0), who: Target),
+                        Log(text: "余烬爆裂，目标站都站不稳！"),
+                    ]),
+                    (Fail, [Log(text: "余烬散在了空气里。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // **中立单位的技能**（`Faction::Neutral` 的配套内容）。
+        //
+        // 为什么它必须存在：中立的游商**不能有能打到人的技能**，
+        // 所以它的 AI 表里只能放这种技能。`targeting: SelfOnly` 是刻意的 ——
+        // 就算将来有人把它改成 `CurrentSelection`，
+        // `requirements` 里的 `TargetIsEnemy` 也会让它在**任何**目标上不成立
+        // （`Neutral` 对谁都不敌对），于是技能永远不可用，而不是"突然开始打人"。
+        //
+        // 双重保险：目标选择 + 可用性门控。这类"不该发生的攻击"靠一层是拦不住的。
+        id: "merchant_cower",
+        roles: [Monster],
+        name: "缩成一团",
+        icon: "cower.png",
+        tags: [INSTANT],
+        duration: 0.5,
+        requirements: [
+            NoActiveAction,
+            TargetIsEnemy,
+        ],
+        costs: [],
+        targeting: SelfOnly,
+        effects: [
+            Log(text: "游商缩起身子，护住了自己的货箱。"),
+        ],
+    ),
+]

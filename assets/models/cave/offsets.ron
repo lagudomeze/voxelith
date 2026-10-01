@@ -1,0 +1,53 @@
+// **自动生成，不要手改** —— 由 `tools/gltf_offsets.py` 写出。
+//
+// 每个模型的"中心偏移"：把它的**底面中心**对到摆放点上要补多少。
+//
+// 为什么需要：这些模型的局部原点约定**不统一** ——
+// 地板/房间以底面中心为原点，而墙/楼梯以**底面边缘**为原点。
+// 不补偏移的话，墙会整体偏半个格子，盖出来的房间对不上格线。
+//
+// 改素材后重跑 `python tools/gltf_offsets.py`。
+(
+    entries: [
+        (name: "corridor-corner", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "corridor-end", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "corridor-intersection", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "corridor-junction", offset: (0.0029, 0.0000, 0.0000)),
+        (name: "corridor-transition", offset: (-2.0000, 0.0000, 0.0000)),
+        (name: "corridor-wide-corner", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "corridor-wide-end", offset: (-0.0586, 0.0000, 0.0000)),
+        (name: "corridor-wide-intersection", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "corridor-wide-junction", offset: (0.0000, 0.0000, 0.0586)),
+        (name: "corridor-wide", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "corridor", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "gate-metal-bars", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "gate-overhang", offset: (0.0000, -3.2500, 0.0000)),
+        (name: "gate-rock", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "gate", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "ladder", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "room-corner", offset: (0.0586, 0.0000, 0.0586)),
+        (name: "room-large-variation", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "room-large", offset: (-0.0005, 0.0000, 0.0000)),
+        (name: "room-small-variation", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "room-small", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "room-wide-variation", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "room-wide", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "stairs-wide", offset: (0.0000, 0.0000, -2.0000)),
+        (name: "stairs", offset: (0.0000, 0.0000, -2.0000)),
+        (name: "template-corner", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "template-detail", offset: (0.0458, -0.0000, 0.1062)),
+        (name: "template-floor-big", offset: (0.0000, 0.0000, 0.0000)),
+        (name: "template-floor-detail-a", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "template-floor-detail", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "template-floor-layer-hole", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "template-floor-layer-raised", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "template-floor-layer", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "template-floor", offset: (0.0000, -0.0000, 0.0000)),
+        (name: "template-wall-corner", offset: (-0.5000, 0.0000, -0.5000)),
+        (name: "template-wall-detail-a", offset: (0.0000, 0.0000, -0.8926)),
+        (name: "template-wall-half", offset: (0.0000, 0.0000, -0.9037)),
+        (name: "template-wall-stairs", offset: (0.0000, -0.0000, -0.5636)),
+        (name: "template-wall-top", offset: (0.0000, 0.0000, -0.5636)),
+        (name: "template-wall", offset: (0.0000, 0.0000, -1.0810)),
+    ],
+)

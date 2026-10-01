@@ -1,0 +1,92 @@
+[
+    (
+        id: "guarding",
+        name: "格挡",
+        default_duration: 2.0,
+        stacking: Refresh,
+        modifiers: [(stat: "armor", delta: Literal(10.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你举起了盾。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        id: "stunned",
+        name: "眩晕",
+        default_duration: 1.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [ATTACK, MOVEMENT, COUNTER],
+        on_apply:  [Log(text: "你被击晕了！")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [Log(text: "眩晕解除。")],
+    ),
+    (
+        id: "poison",
+        name: "中毒",
+        default_duration: 5.0,
+        stacking: Stack(max: 3),
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [ModifyResource(pool: "hp", delta: Neg(Literal(2.0)), who: Target)],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        id: "rage",
+        name: "狂暴",
+        default_duration: 8.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "strength", delta: Literal(5.0)),
+            (stat: "armor",    delta: Literal(-3.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你进入了狂暴！")],
+        on_tick:   [],
+        on_expire: [Log(text: "狂暴消退。")],
+        on_remove: [],
+    ),
+    // ---- 下面两个是 `Stacking` 的**内容用例**（`Ignore` 与 `Replace`）----
+    //
+    // 引擎早就支持四种叠加规则，但内容里只用过 `Refresh` 与 `Stack`，
+    // 于是 `Ignore` / `Replace` 这两条分支**没有任何东西走过**（也测不到）。
+    // 加这两个状态就是为了让每条分支都有真实用例。
+    (
+        // `Ignore`：重复施加**完全无效**。
+        //
+        // 为什么这个语义有存在价值：有些减益不该能被"刷时间"。
+        // 用 `Refresh` 的话，敌人只要在你快醒时补一下，你就永远出不来。
+        // 用 `Ignore` 就锁死了 —— 第一次中了就是那一段时间，谁都别想延长。
+        id: "staggered",
+        name: "踉跄",
+        default_duration: 3.0,
+        stacking: Ignore,
+        modifiers: [(stat: "armor", delta: Literal(-4.0))],
+        blocks_tags: [COUNTER],
+        on_apply:  [Log(text: "你被打得脚步踉跄。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // `Replace`：重复施加**替换**旧实例，层数重置为 1。
+        //
+        // 与 `Stack` 的差别：`Stack(max: 3)` 会累到 3 层（越叠越疼），
+        // 而 `Replace` 每次都给一个"全新的 1 层"。
+        // 适合"强度不叠、但可以刷新"的持续伤害。
+        id: "burning",
+        name: "灼烧",
+        default_duration: 4.0,
+        stacking: Replace,
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你被点燃了！")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(3.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+]
