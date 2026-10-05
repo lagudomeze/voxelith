@@ -133,7 +133,7 @@ fn entry_normal(dir: [f32; 3]) -> [i32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::voxel::{Voxel, VoxelId};
+    use crate::atoms::world::voxel::{Voxel, VoxelId};
 
     /// 一个全实心的测试地形（`surface` 极高 → 到处都是地表方块）。
     fn solid_terrain() -> TerrainParams {

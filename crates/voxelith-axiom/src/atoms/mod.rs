@@ -29,6 +29,7 @@
 //! | [`action`] | 行动实例与它的关系（行动槽）、瞬发 / 待结算 / 威胁三个标记 |
 //! | [`status`] | 状态实例与它的关系（状态槽） |
 //! | [`decision`] | 决策槽：怪物"已经决定、还没出手"的那条决策 |
+//! | [`world`] | **体素世界**：`Voxel` / `Chunk` / `VoxelStore` / 噪声生成 / DDA 射线（纯数据 + 纯计算，**零系统**） |
 //!
 //! 详见 [docs/combat-design.md](../../../docs/combat-design.md)、
 //! [docs/layers.md](../../../docs/layers.md)、[docs/bevy-queries.md](../../../docs/bevy-queries.md)。
@@ -38,6 +39,7 @@ pub mod actor;
 pub mod decision;
 pub mod status;
 pub mod vocabulary;
+pub mod world;
 
 pub use action::{
     Action, ActiveActions, CastingSkill, CastsSkill, InitiatedBy, ReadyToResolve, ResolveNow,

@@ -212,8 +212,8 @@ pub fn load_around(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::chunk::CHUNK_SIZE;
-    use crate::world::voxel::VoxelId;
+    use crate::atoms::world::chunk::CHUNK_SIZE;
+    use crate::atoms::world::voxel::VoxelId;
 
     fn terrain() -> TerrainParams {
         TerrainParams {
