@@ -30,7 +30,7 @@ pub enum CombatPhase {
 
 /// 挂起的威胁（**Resource**）：怪物"即将生效"的行动。
 ///
-/// 它由 `monster_tick` 登记、由 `Effect::DispelAction` 清空；
+/// 它由 `monster_act` 登记、由 `Effect::DispelAction` 清空；
 /// `update_phase` 只读它，不负责发现"行动已经不存在"。
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PendingThreat {

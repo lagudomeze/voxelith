@@ -20,15 +20,18 @@
 //!            ⑥ resolve_status_ticks / detaches  状态的时机效果
 //!            ⑦ purge_statuses            消费净化请求
 //!            ⑧ compute_available_skills  派生"当前可用技能"（给下一步与 L2 看）
-//!            ⑨ monster_tick              怪物攒能量 → 生成威胁行动 + 登记 PendingThreat
-//!            ⑩ update_phase              相位转移（空槽 → 等输入；有威胁 + 有反制 → 反制窗口）
+//!            ⑨ monster_decide            怪物攒能量 → 选招 → 写进**决策槽**（只决定，不出手）
+//!            （ApplyDeferred）
+//!            ⑩ monster_act               决策槽有货 + 窗口空 → 生成威胁行动 + 登记 PendingThreat
+//!            ⑪ update_phase              相位转移（空槽 → 等输入；有威胁 + 有反制 → 反制窗口）
 //! ```
 //!
-//! **两处 `ApplyDeferred` 是必需的**：`cast_requests` / `tick_actions` 都通过 `Commands`
-//! 写标记，而这些命令默认在本系统集末尾才生效；不显式落一次，下一步那一帧就看不到它们，
-//! "瞬发技能同帧结算"会晚一帧（见 [docs/combat-design.md](../../../../docs/combat-design.md) §7）。
+//! **三处 `ApplyDeferred` 是必需的**：`cast_requests` / `tick_actions` 通过 `Commands`
+//! 写标记、`monster_decide` 通过 `Commands` spawn 决策实体，而这些命令默认在本系统集末尾
+//! 才生效；不显式落一次，下一步那一帧就看不到它们——"瞬发技能同帧结算"与"决定当帧生效"
+//! 都会晚一帧（见 [docs/combat-design.md](../../../../docs/combat-design.md) §7）。
 //!
-//! ⑨⑩ 排在最后：它们决定**下一帧**冻结不冻结，而本帧的结算已经跑完——
+//! ⑨⑩⑪ 排在最后：它们决定**下一帧**冻结不冻结，而本帧的结算已经跑完——
 //! 这样"反制窗口"永远出现在怪物行动真正生效之前。
 
 use bevy_app::prelude::*;
@@ -42,7 +45,7 @@ use crate::behaviors::action::{
     ActionPlugin, cast_requests, compute_available_skills, resolve_actions, tick_actions,
 };
 use crate::behaviors::contest::{CombatRng, ContestPlugin, DEFAULT_RNG_SEED};
-use crate::behaviors::monster::monster_tick;
+use crate::behaviors::monster::{monster_act, monster_decide};
 use crate::behaviors::phase::{PhasePlugin, update_phase};
 use crate::behaviors::status::{
     StatusPlugin, apply_status_modifiers, purge_statuses, resolve_status_detaches,
@@ -126,7 +129,11 @@ impl Plugin for CombatPlugin {
                     purge_statuses,
                 ),
                 compute_available_skills,
-                monster_tick,
+                // 决定 → 落一次命令（让刚写下的决策实体当场可见；`DecidedBy` 的钩子要
+                // 在这时候给怪物挂上 `DecisionSlot`）→ 执行。
+                monster_decide,
+                ApplyDeferred,
+                monster_act,
                 update_phase,
             )
                 .chain(),

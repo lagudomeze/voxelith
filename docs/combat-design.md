@@ -193,6 +193,13 @@ pub struct Action { pub elapsed: f32, pub duration: f32, pub target: Option<Enti
 pub struct ActiveStatus { pub def: Entity, pub remaining: f32, pub stacks: u8,
                           pub source: Entity, pub tick_accumulator: f32 }
 // 关系：ActiveStatus ──AttachedTo──► Actor；Actor 上的 Statuses(Vec<Entity>) 是反向集
+
+pub struct AiDecision { pub skill: SkillId, pub skill_entity: Entity, pub weight: f32,
+                        pub target: Option<Entity> }
+// 关系（**两张一对一**，都是 `Entity` 字段而不是 `Vec<Entity>`）：
+//   AiDecision ──DecidedBy──► Actor；Actor 上的 DecisionSlot(Entity) 是反向集
+//   AiDecision ──SettledBy──► Action；Action 上的 Settles(Entity) 是反向集
+// 两个反向集都带 `linked_spawn`：怪物没了决策跟着没；**行动没了决策也跟着没**
 ```
 
 ## 5. 对抗与判定
@@ -220,15 +227,16 @@ pub enum CombatPhase { #[default] Resolving, AwaitingInput, AwaitingCounter }
 ```text
 PreUpdate   drive_virtual_time    phase == Resolving ? 倍率 1.0 : 0.0
 Update
-  monster_tick            能量满 → 生成怪物 action + 登记 PendingThreat
+  monster_decide          能量满 → 选招 → 写进决策槽（只决定，不出手）
   apply_status_modifiers  从状态重建 StatModifiers → Stat::refresh（状态数值效果）
   compute_available_skills派生数据：当前可用技能集
+  monster_act             决策槽有货 + 窗口空 → 生成行动 + 登记 PendingThreat
   update_phase            Resolving ⇄ AwaitingInput ⇄ AwaitingCounter
   cast_requests           消费 CastRequest → 扣费 / 冷却 / 生成 Action（瞬发打 ResolveNow）
   tick_actions            推进 elapsed（冻结时 delta = 0，等价于暂停）
   resolve_actions         执行 Skill.effects → despawn action
   tick_statuses           倒计时 + on_tick；到期前触发 on_expire / on_remove
-PostUpdate  （L2 读 AvailableSkills / ActiveActions / CombatLog）
+PostUpdate  （L2 读 AvailableSkills / ActiveActions / DecisionSlot / CombatLog）
 ```
 
 **冻结做到"逻辑系统零感知"**：倍率为 0 时 `Res<Time>` 的 `delta` 就是 `0`，
@@ -248,21 +256,77 @@ AwaitingInput:    两者都不成立 → Resolving
 AwaitingCounter:  两者都不成立 → Resolving
 ```
 
+### 6.1 决策槽：决定与执行是两个时刻（**一对一关系**）
+
+怪物攒满能量之后做两件事：**决定**放哪一招，然后**出手**。这两件事被拆成两个系统，
+中间隔着一个"决策槽"——一个怪物身上**同时只有一条**决策，所以它是一对一关系：
+
+```text
+monster_decide ──写──► DecisionSlot ──读──► monster_act ──► PendingThreat
+```
+
+| 组件 | 在哪 | 关系 |
+|---|---|---|
+| `AiDecision` | 决策实体（单独 spawn） | 决策本身：技能词汇 ID + 技能实体 + 权重 + 锁定目标 |
+| `DecidedBy(Entity)` | 决策实体 | 一对一的关系源 |
+| `DecisionSlot(Entity)` | 怪物 | 一对一的关系目标（**字段是单个 `Entity`**），`linked_spawn` |
+| `SettledBy(Entity)` | 决策实体 | 决策 → 它落成的行动 |
+| `Settles(Entity)` | 行动 | 一对一的目标，`linked_spawn`：**行动没了，决策跟着没** |
+
+**为什么要拆**：挤在一个 `if` 里时，"决定"没有落脚点。
+
+* **决定会被丢弃重掷**：威胁窗口只有一格，被别的怪物占着时只能下一帧重新决定一遍；
+  而条件是随时会变的（残血 / 中毒 / 换目标），那实际上是"每帧重掷、留下最后一次"。
+  拆开之后决定**留在槽里等窗口**，条件再变也不改主意。
+* **决定不可观察**：行动还没生成时，世界上没有任何东西能回答"这只怪打算干什么"。
+
+**代价（不是零成本，得知道）**：
+
+* 费用与冷却在**决定那一刻**付，不是出手那一刻。理由：决定一旦写下就成立，不该因为
+  "等窗口"的这几帧里池子变了而变成付不起——付不起的决策会永远卡在槽里。
+* `monster_decide` 到 `monster_act` 之间**多一个 `ApplyDeferred`**：决策实体是 `Commands`
+  spawn 的，不落一次同步点，本帧的执行就看不到它（见 §7.1 那条"延迟恰好一帧"）。
+
+**两个坑都来自"一对一"本身的语义**（都不报错，只是沉默）：
+
+1. **槽的"空"不是"长度为 0"，是没有 `DecisionSlot` 组件。** 0.19 的 `RelationshipTarget`
+   不支持 `Option<Entity>`，所以"没决定"只能表达为拆掉关系。拆掉之后组件本身会被清掉，
+   但那次清理是**排队命令**——同一帧里槽可能还在、只是集合空了。所以读槽一律走
+   `decision_of()`（内部是 `iter()`），不去直接读字段。
+2. **"换一条决策"不会销毁旧决策实体。** 一对一关系在新源顶掉旧源时只做**解绑**：旧决策上的
+   `DecidedBy` 被自动移除，实体却留在世界里。所以 `monster_decide` **不给它顶掉的机会**——
+   只在槽空时写新决策。谁哪天删掉那个 `slot.is_some() → continue`，旧决策就会静静堆在
+   世界里，测试 `a_waiting_monster_does_not_rewrite_its_decision_every_frame` 专门钉这条。
+
+**槽的三条清空路径**（都是关系级联，没有"每帧反推谁该退役"）：
+
+| 路径 | 机制 |
+|---|---|
+| 行动正常结算 | `resolve_actions` despawn 行动 → `Settles` 级联 despawn 决策 |
+| 行动被反制取消 | 同上（`cancel_actions` 也只是 despawn 行动） |
+| 怪物自己没了 | `DecisionSlot` 级联 despawn 决策 |
+
+**为什么不能用"反推"**：`Effect::DispelAction` 把 `PendingThreat` **整个**清空（连 `source`
+都不留），反推根本无从下手——决策会永久卡在槽里，于是怪物再也不出手，而且什么都不报。
+挂到行动上就完全不需要反推。
+
 ## 7. 反制机制
 
 **反制 = 带 `COUNTER` 标签、`HasThreat` 需求、`DispelAction` 效果的普通技能。没有反制槽。**
 
 ```text
-1. monster_tick          → SpawnAction(goblin_slash, who: Caster) → 怪物 action + PendingThreat
-2. update_phase          → has_threat && has_counter → AwaitingCounter（虚拟时间冻结）
-3. L2 presentation       → 读 AvailableSkills，显示"反击"
-4. 玩家 CastRequest      → { caster: pc, skill: riposte, target: threat.source }
-5. cast_requests         → 扣 reaction → spawn Action{duration: 0} + CastsSkill + InitiatedBy + ResolveNow
-6. resolve_actions（同帧）→ Contest(反应 vs 攻击力) → Success
+1. monster_decide         → 选招 → 写进决策槽（DecisionSlot，一对一）
+2. monster_act            → SpawnAction(goblin_slash, who: Caster) → 怪物 action + PendingThreat
+3. update_phase           → has_threat && has_counter → AwaitingCounter（虚拟时间冻结）
+4. L2 presentation        → 读 AvailableSkills，显示"反击"
+5. 玩家 CastRequest       → { caster: pc, skill: riposte, target: threat.source }
+6. cast_requests          → 扣 reaction → spawn Action{duration: 0} + CastsSkill + InitiatedBy + ResolveNow
+7. resolve_actions（同帧）→ Contest(反应 vs 攻击力) → Success
                             → DispelAction(who: Target) → 解析为 PendingThreat.action → despawn
                             → 嵌套 Contest → ModifyResource(HP, -20) 给怪物
-7. despawn 掉 riposte 自己的 action → ActiveActions 自动清空
-8. update_phase          → 威胁实体已不存在 → 回 Resolving（恢复流动）
+8. despawn 掉 riposte 自己的 action → ActiveActions 自动清空
+                            → **怪物的决策也跟着它的 action 一起没了**（`Settles` + `linked_spawn`）
+9. update_phase           → 威胁实体已不存在 → 回 Resolving（恢复流动）
 ```
 
 **关键点**：`duration = 0` 的 action 在同一帧内 spawn → 结算 → despawn，**从未真正占槽**；
@@ -376,7 +440,10 @@ crates/voxelith-axiom/src/
   behaviors/action/           Action 实例 / 关系组件 / CastRequest / 推进 / 结算（casting.rs 放释放校验）
   behaviors/phase.rs          CombatPhase / PendingThreat / AvailableSkills / CombatLog / update_phase
   behaviors/time_scale.rs     VirtualTimeConfig / drive_virtual_time / TimeControlPlugin
-  behaviors/monster.rs        monster_tick（能量 → AI 权重 → 生成威胁行动）
+  behaviors/monster/         怪物 AI（**决定与执行拆开，中间是决策槽**）
+    mod.rs                     AiChoice / MonsterDef / Threat / choose_skill / condition_holds
+    decision.rs                AiDecision / DecidedBy + DecisionSlot（一对一）/
+                               SettledBy + Settles / monster_decide（写槽）/ monster_act（出手）
   behaviors/combat.rs         CombatConfig（种子）/ CombatPlugin（**独占**跨域系统顺序）
   behaviors/mod.rs            L1 领域地图
 
@@ -399,6 +466,7 @@ crates/voxelith-prime/src/
 | `PurgeStatusMessage` | `Message` | `behaviors::status` | 净化请求（按状态 ID / 按来源） |
 | `CombatLog` | **Resource**（追加 + 每帧读） | `behaviors::phase` | 战斗日志文案，L2 只读。效果执行器拿不到 `MessageWriter`，用 Resource 反而降低耦合 |
 | `AvailableSkills` / `ActiveActions` / `CombatPhase` | **Resource / 关系组件** | `behaviors::phase` / `action` | 派生数据，L2 只读 |
+| `DecisionSlot`（+ `AiDecision`） | **关系组件**（一对一，怪物 → 决策实体） | `behaviors::monster::decision` | "这只怪已经决定了什么、还没出手"。L2 只读 `decision_of(slot)` |
 | `DeathEvent` | `EntityEvent` | **待定** | 资源池见底目前没有专门通知；要不要做"归零即事件"见 [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) Q27 |
 
 L2 不定义任何战斗数值，只发 `CastRequest`、只读 `AvailableSkills` / `ActiveActions` / `CombatPhase` / `CombatLog`。
@@ -461,6 +529,8 @@ L2 不定义任何战斗数值，只发 `CastRequest`、只读 `AvailableSkills`
 - [ ] `Effect` 是唯一的世界突变原语吗？技能与状态是否共用它？
 - [ ] 伤害是不是"对抗成功后改资源"？有没有人偷偷加回 `Damage` 变体？
 - [ ] `ActiveActions.len() <= 1` 是唯一槽位约束吗？有没有冒出"反制槽 / 技能种类"枚举？
+- [ ] **决策槽是一对一吗？**（字段是不是单个 `Entity`）读槽是不是走的 `decision_of()`、
+      `linked_spawn` 两条级联是不是都在？
 - [ ] 逻辑系统是否只读 `Res<Time>`、完全不感知冻结？
 - [ ] 字符串有没有进热路径？（只在 loader 里出现）
 - [ ] **阵营判定用的是 `Faction`、特性判定用的是 `ActorTags`，两者没有互相顶替？**

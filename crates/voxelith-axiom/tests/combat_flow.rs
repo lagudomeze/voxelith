@@ -338,7 +338,7 @@ fn pending_threat_opens_the_counter_window() {
         targeting: Targeting::ThreatSource,
         effects: Vec::new(),
     });
-    // 威胁行动必须带 `Threat` 标记：`monster_tick` 每帧会清掉"已经不存在 / 没标记"的挂起威胁。
+    // 威胁行动必须带 `Threat` 标记：`monster_decide` 每帧会清掉"已经不存在 / 没标记"的挂起威胁。
     let threat_action = app
         .world_mut()
         .spawn(voxelith_axiom::behaviors::monster::Threat)

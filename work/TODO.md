@@ -1,3 +1,83 @@
+# ✅ 决策槽：怪物 AI 的"决定"与"执行"拆开，槽用**一对一关系**
+
+## 改了什么
+
+`monster_tick`（一个系统里"攒能量 → 选招 → 生成行动"一条龙）拆成三步：
+
+```text
+monster_decide         能量满 → 选招 → 写进决策槽（只决定，不出手）
+ApplyDeferred          让刚 spawn 的决策实体本帧可见
+monster_act            决策槽有货 + 威胁窗口空 → 生成威胁行动 + 登记 PendingThreat
+```
+
+关系（全在 `behaviors/monster/decision.rs`）：
+
+| | 源 | 目标 | 为什么 |
+|---|---|---|---|
+| 决策槽 | `DecidedBy(monster)` | `DecisionSlot(Entity)`，`linked_spawn` | 一个怪物**同时只有一条**决策 → 字段是单个 `Entity` 而不是 `Vec` |
+| 生命周期 | `SettledBy(action)` | `Settles(Entity)`，`linked_spawn` | **行动一没，决策跟着没** |
+
+## 为什么要拆（不是"拆着好看"）
+
+原来那一个 `if` 里，"决定"没有落脚点：
+
+1. **决定会被丢弃重掷**：威胁窗口只有一格，被别的怪占着时只能下一帧重选一遍；
+   而条件随时在变（残血 / 中毒 / 换目标），那实际上是"每帧重掷、留下最后一次"。
+   现在决定留在槽里等窗口，**条件再变也不改主意**。
+2. **决定不可观察**：行动还没生成时，世界上没有任何东西能回答"这只怪打算干什么"。
+
+## 一对一关系的两个坑（都不报错，只是沉默）
+
+1. **槽的"空"不是"长度为 0"，是没有 `DecisionSlot` 组件。** 0.19 的 `RelationshipTarget`
+   不支持 `Option<Entity>`，所以"没决定"只能表达为拆掉关系；拆掉时**组件本身的清理是
+   排队命令**——同一帧里组件还在、集合已经空了。所以读槽一律走 `decision_of()`（内部
+   `iter()`），连 `monster_decide` 的闸门也问"槽里真的有决策吗"而不是"组件在不在"。
+2. **"换一条决策"不会销毁旧决策实体。** 一对一在新源顶掉旧源时只做**解绑**。所以
+   `monster_decide` **不给它顶掉的机会**（槽不空就不写新决策），从根上删掉这条泄漏路径。
+
+## 清空槽的三条路径（都是关系级联，没有"反推"）
+
+| 路径 | 机制 |
+|---|---|
+| 行动正常结算 | `resolve_actions` despawn 行动 → 级联 despawn 决策 |
+| 行动被反制取消 | 同上（`cancel_actions` 也只是 despawn 行动） |
+| 怪物自己没了 | `DecisionSlot` 级联 despawn 决策 |
+
+**为什么不能"每帧扫一遍 `PendingThreat` 反推谁该退役"**：`Effect::DispelAction` 把
+`PendingThreat` **连 `source` 一起**清空，反推根本无从下手 —— 决策会永久卡在槽里，
+于是怪物再也不出手，而且**什么都不报**。
+
+## 代价（写进注释与 docs，别当零成本）
+
+- 费用与冷却在**决定那一刻**付（不是出手那一刻）。不这样，等窗口的这几帧里池子变了
+  就会得到一条"付不起"的决策，而付不起的决策会永远卡在槽里。
+- 多一个系统 + 一个 `ApplyDeferred`（原来是 2 个，现在 3 个）。
+
+## 方法论：先证明测试会红
+
+5 个变异，每个都被指定的测试抓到（不是"改完能过"就算）：
+
+| 变异 | 抓到它的测试 |
+|---|---|
+| 去掉"槽里已有决策 → 跳过" | `a_waiting_monster_does_not_rewrite_its_decision_every_frame` |
+| 不退役"执行不了"的决策 | `a_decision_whose_skill_vanished_does_not_jam_the_slot` |
+| 决策不挂到行动上 | `a_monster_decides_before_it_gets_to_act` 等 3 个 |
+| `DecisionSlot` 去掉 `linked_spawn` | `a_monster_takes_its_decision_down_with_it` |
+| `monster_act` 不看窗口 | `a_monster_decides_before_it_gets_to_act` |
+
+## 差点踩的坑：测试不该依赖"时间有没有被冻结"
+
+第一版用 `step(&mut app, 1.5)` 推进时间，`cargo test -p voxelith-axiom` 全过，
+`cargo test --workspace` **必挂**。逐帧打印探针查出来：两个 feature 集下
+`keep_resolving` 里 `CastRequest → ActiveActions` 的 `Commands` 落地差了**一帧**，
+相位于是在 `Resolving` / `AwaitingInput` 之间摆动，倍率有时是 0。
+
+修法不是"调宽时间"，而是**让结论与时间无关**：直接把 `ActionEnergy.current` 顶到阈值
+（`ActionEnergy::tick` 是"先累加再判"，`delta = 0` 的帧照样出手），全部走 `app.update()`。
+这恰好也是设计自夸的那条性质——**冻结对逻辑系统零感知**。
+
+---
+
 # ✅ 修复：展示台与地板**不在同一层** → 两套东西永远看不到一起
 
 ## 现象（用户发现的）

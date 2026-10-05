@@ -141,7 +141,7 @@ pub fn spawn_monster(world: &mut World, faction: Faction) -> Entity {
         .id()
 }
 
-/// 造一个会自己攒能量的怪物（`monster_tick` 只遍历带 `ActionEnergy` 的实体）。
+/// 造一个会自己攒能量的怪物（`monster_decide` 只遍历带 `ActionEnergy` 的实体）。
 ///
 /// 能量参数用 [`EnergySpec`] 而不是两个裸 `f32`：这两个数**能互换**，
 /// 裸参数写反了只会得到一个"阈值 0、永远立刻出手"的怪物，测试却看起来通过了。

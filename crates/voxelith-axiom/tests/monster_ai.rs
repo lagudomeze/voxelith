@@ -1,6 +1,7 @@
 //! L1 集成测试：怪物 AI（能量 → 选招 → 生成威胁行动）。
 //!
 //! 与 `combat_flow.rs` / `status_flow.rs` 的分工：这边只测"怪物怎么决定出手"。
+//! **决策槽本身**（决定存在哪、什么时候消失）在 `monster_decision.rs`。
 //!
 //! 钉住的契约：
 //!
@@ -23,7 +24,7 @@ use voxelith_axiom::behaviors::skill::SkillTags;
 
 use support::*;
 
-/// 把技能登记进目录（`monster_tick` 通过目录找技能实体）。
+/// 把技能登记进目录（`monster_decide` 通过目录找技能实体）。
 fn register(app: &mut App, skill: Entity) {
     let mut catalog = SkillCatalog::default();
     catalog.insert(SkillId(0), skill);
