@@ -48,7 +48,6 @@ use crate::atoms::actor::{
     ActionEnergy, ActorRole, AiDriven, Cooldowns, InputDriven, Resources, Stats,
 };
 use crate::behaviors::action::{Action, CastsSkill, InitiatedBy, ResolveNow};
-use crate::behaviors::content::SkillId;
 use crate::behaviors::effect::EffectParams;
 use crate::behaviors::phase::PendingThreat;
 use crate::behaviors::requirement::CasterContext;
@@ -57,72 +56,11 @@ use crate::behaviors::targeting::faction_of;
 
 use super::{MonsterDef, Threat, choose_skill};
 
-/// 一条 AI 决策（组件，挂在**决策实体**上）。
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct AiDecision {
-    /// 想放哪个技能——**词汇 ID**：读日志 / 表现层不查目录也能说出"它要放什么"。
-    pub skill: SkillId,
-    /// 决定那一刻解析好的技能实体。
-    ///
-    /// 与 `skill` 由 [`monster_decide`] 的**同一次查表**写入，不会各说各话；
-    /// 存下来是为了"决策就是一次解析的结果"——执行时不该再查一遍目录。
-    pub skill_entity: Entity,
-    /// 选中时的权重。
-    pub weight: f32,
-    /// 决定那一刻锁定的目标（**不会**因为场上目标换人而改主意）。
-    pub target: Option<Entity>,
-}
-
-/// 关系：决策 → 它属于哪个怪物（一对一的关系源，**唯一真相在这一侧**）。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[relationship(relationship_target = DecisionSlot)]
-pub struct DecidedBy(pub Entity);
-
-/// 关系反向集（**一对一**）：怪物 → 它当前那条决策。
-///
-/// 字段是**单个 `Entity`** 而不是 `Vec<Entity>`：一个怪物同时只能有一条决策，
-/// "第二条"在语义上根本不成立（`Vec` 会让人以为可以排队）。
-///
-/// `linked_spawn`：怪物被 despawn 时决策跟着销毁——决策不能脱离它的怪物独立存在。
-///
-/// ## 为什么是 `SparseSet`
-///
-/// 槽**每个决策周期插一次、摘一次**（决定 → 挂到行动上 → 行动没了就退役），而怪物身上
-/// 有十来个组件（`Actor` / `Faction` / `ActionEnergy` / `MonsterDef` / `Resources` /
-/// `Stats` / `Cooldowns` / `ActorState` / `ActorTags` + 表现层那几个）。用默认的 `Table`
-/// 存储，每插一次都要把这一整行**搬**到另一个 archetype，摘的时候再搬回来；
-/// `SparseSet` 组件**不参与 archetype 身份**，插删只动稀疏集。
-///
-/// 这个槽也**不用来当过滤器**（`monster_decide` 读的是 `Option<&DecisionSlot>`，
-/// 它是数据不是筛选条件），所以不必吃"`SparseSet` 的 `With` 过滤更慢"那条代价。
-/// 判据见 [docs/bevy-queries.md](../../../../docs/bevy-queries.md)。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[component(storage = "SparseSet")]
-#[relationship_target(relationship = DecidedBy, linked_spawn)]
-pub struct DecisionSlot(Entity);
-
-/// 怪物的当前决策实体：没槽、或槽正处在"已拆掉但组件还没被清理"的那一帧 → `None`。
-///
-/// 对标 `action::active_of`——**L2 只读**，不需要知道关系是怎么维护的。
-pub fn decision_of(slot: Option<&DecisionSlot>) -> Option<Entity> {
-    slot.and_then(|slot| slot.iter().next())
-}
-
-/// 关系：决策 → 它落成的行动（一对一）。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[relationship(relationship_target = Settles)]
-pub struct SettledBy(pub Entity);
-
-/// 关系反向集（**一对一**）：行动 → 它结算的那条决策。
-///
-/// `linked_spawn`：**行动一 despawn，决策跟着销毁**。这是决策槽自动清空的主路径，
-/// 见模块文档的"清空槽的三条路径"。
-///
-/// 这个组件不由任何系统插入：它由 `SettledBy` 的钩子在行动实体上自动建出来。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[relationship_target(relationship = SettledBy, linked_spawn)]
-pub struct Settles(Entity);
-
+// **决策槽的原子（组件 + 关系）在 L0**：它们零依赖。
+// 这份文件留着的是**系统**：怎么决定、怎么执行、什么时候退役。
+pub use crate::atoms::decision::{
+    AiDecision, DecidedBy, DecisionSlot, SettledBy, Settles, decision_of,
+};
 /// 一个**可能要做决定**的怪物（`monster_decide` 的查询项）。
 ///
 /// 六个字段的四元组早就不止"元组"了：它们合起来是"这个怪物现在能不能决定"这件事的

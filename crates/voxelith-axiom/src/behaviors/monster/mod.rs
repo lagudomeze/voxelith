@@ -52,9 +52,8 @@ pub struct MonsterDef {
     pub ai: Vec<AiChoice>,
 }
 
-/// 威胁标记：挂在这个行动实体上 = "它即将生效"。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Threat;
+// **`Threat` 在 L0**（`atoms::action`）：它标的是**行动**，零依赖。
+pub use crate::atoms::action::Threat;
 
 /// 选招（**纯函数**）：只有**条件成立且技能可用**的候选参与，取权重最大者；平局取靠前的（确定性）。
 ///

@@ -1,3 +1,79 @@
+# ✅ L0 收拢：零依赖的**实例组件与关系**搬进 atoms
+
+## 先量了一遍，结论和"L0 太小"不完全一样
+
+```
+atoms/      629 行   ← 搬之前
+behaviors/ 7742 行
+world/     1677 行
+```
+
+`behaviors/` 里 **5058 行没有任何世界访问**（不取 `Res` / `Query` / `Commands`）。
+但**其中大部分不该动**：
+
+- `value/` / `contest.rs` / `requirement.rs` / `targeting.rs` 是**公式**，
+  而 `layers.md`（R54 / R59）明确写着"L1 可以在不知道具体层的情况下做判定、公式、筛选"
+  —— 公式**本来就归 L1**；
+- `content/`（描述结构 + 加载管线，约 2400 行）是内容管线，更不是 L0。
+
+所以"L0 小"不是病。真正错位的是一小撮**零依赖的组件**。
+
+## 进 L0 的判据（写进 `atoms/mod.rs` 了）
+
+> **它认不认识别的东西？**
+
+| 认不认识 | 放哪 | 例 |
+|---|---|---|
+| 谁都不引用（只有 `Entity` / 词汇 ID / 姊妹类型） | **L0** | `Action` / `ActiveStatus` / `DecisionSlot` / `Faction` |
+| 引用**公式簇**（`Requirement` / `Effect` / `Value`） | L1（跟着公式） | `Skill` / `StatusDef` / `MonsterDef` |
+| 要**世界**才算得出来 | L1（系统） | `tick_actions` / `monster_decide` |
+
+好处是**判据会被编译器执行**：给 L0 组件加一个引用 L1 的字段，立刻多出一条
+`atoms → behaviors` 的边——看得见，而不是悄悄长在 L1 里没人管。
+
+## 搬了什么
+
+| 新位置 | 内容 |
+|---|---|
+| `atoms/action.rs` | `Action` + `CastsSkill`/`CastingSkill` + `InitiatedBy`/`ActiveActions` + `ResolveNow`/`ReadyToResolve` + `Threat` + `active_of` |
+| `atoms/status.rs` | `ActiveStatus` + `AttachedTo`/`Statuses` |
+| `atoms/decision.rs` | `AiDecision` + `DecidedBy`/`DecisionSlot` + `SettledBy`/`Settles` + `decision_of` |
+
+L1 那三个模块（`action` / `status` / `monster`）用 `pub use crate::atoms::…` **转出**，
+所以 `behaviors::action::Action` 这类老路径照旧可用——改动只落在**定义处**。
+
+`Threat` 也搬了：它标的是**行动**（反制窗口要取消的就是那条 action），
+挂在 `monster` 域只是因为 `monster_act` 登记它。
+
+**结果**：`atoms/` 629 → **1079 行**，7 个文件。
+
+## 没搬的，和不搬的理由
+
+- **公式簇**（约 2900 行）：R54 / R59 划给 L1，搬了就是改规则。
+- **`Skill` / `StatusDef` / `MonsterDef`**：它们引用公式簇。搬它们等于把公式一起搬。
+- **`world/`**：它是第二个 L0 域，但物理收敛要改公开路径，上一轮问过，还等你定。
+
+## 还没做的拆分（有数据，等你点）
+
+没有文件超过 R26 的 500 行，所以下面这些都是**可读性**问题，不是规则问题：
+
+| 文件 | 行 | 混了什么 |
+|---|---|---|
+| `behaviors/requirement.rs` | 551 | 定义（`Requirement`/`Condition`/`Cost`/`Targeting`）+ `CasterContext` + 判定函数 |
+| `behaviors/content/descriptor/mod.rs` | 483 | 技能 / 状态 / 角色 / 数值曲线四组描述结构 |
+| `behaviors/status.rs` | 398 | 定义 + 3 个消息 + 5 个生命周期系统 + 修饰符派生 |
+| `behaviors/effect/mod.rs` | 372 | `Effect` 枚举 + `EffectContext` + **一个 135 行的大 match**（可按小抄 §六 拆成 resource/status/action/meta 四个 resolver） |
+
+`effect/mod.rs` 那个大 match 最贴近"把 resolver 按效果类别分开"的写法，
+要拆的话建议从它开始。
+
+## 证据
+
+**295 测试全绿、守卫 10/10**；启动截图哈希 `52E53BE05531205A` 与改动前**逐像素相同**
+——这次是纯搬家的行为中性改动。
+
+---
+
 # ✅ 决策槽：怪物 AI 的"决定"与"执行"拆开，槽用**一对一关系**
 
 ## 改了什么

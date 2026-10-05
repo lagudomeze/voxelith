@@ -31,78 +31,12 @@ use crate::behaviors::targeting::{
     TargetingContext, faction_of as target_faction_of, hostile_to, resolve_target,
 };
 
-/// 一个正在进行的行动（组件，挂在**行动实体**上）。
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct Action {
-    /// 已经过去的时长（秒）。
-    pub elapsed: f32,
-    /// 总时长（秒）；`0.0` = 瞬发。
-    pub duration: f32,
-    /// 释放时指定的目标（`Targeting` 的第一步输入）。
-    pub target: Option<Entity>,
-}
-
-impl Action {
-    /// 是否已经到时长。
-    pub fn is_complete(&self) -> bool {
-        self.elapsed >= self.duration
-    }
-
-    /// 进度（0..=1；瞬发恒为 1）。
-    pub fn progress(&self) -> f32 {
-        if self.duration <= 0.0 {
-            1.0
-        } else {
-            (self.elapsed / self.duration).clamp(0.0, 1.0)
-        }
-    }
-}
-
-/// 关系：行动 → 它释放的技能定义。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[relationship(relationship_target = CastingSkill)]
-pub struct CastsSkill(pub Entity);
-
-/// 关系反向集：技能定义 → 正在释放它的行动。
-#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
-#[relationship_target(relationship = CastsSkill)]
-pub struct CastingSkill(Vec<Entity>);
-
-/// 关系：行动 → 发起它的角色（**这就是行动槽**）。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[relationship(relationship_target = ActiveActions)]
-pub struct InitiatedBy(pub Entity);
-
-/// 关系反向集：角色 → 它正在进行的行动（**槽位约束的载体**）。
-#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
-#[relationship_target(relationship = InitiatedBy)]
-pub struct ActiveActions(Vec<Entity>);
-
-impl ActiveActions {
-    /// 当前行动列表。
-    pub fn actions(&self) -> &[Entity] {
-        &self.0
-    }
-
-    /// 槽是否为空（空 = 这个角色在等输入）。
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// 槽里有几个行动。
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-/// 瞬发标记：本次推进里直接判定为"可结算"。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ResolveNow;
-
-/// 已到时长、待结算。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReadyToResolve;
-
+// **行动的原子（组件 + 关系）在 L0**：它们零依赖，所以不该长在这里。
+// 路径照旧可用（`behaviors::action::Action`），新增依赖时要先想清楚是不是越层。
+pub use crate::atoms::action::{
+    Action, ActiveActions, CastingSkill, CastsSkill, InitiatedBy, ReadyToResolve, ResolveNow,
+    Threat, active_of,
+};
 /// 一条**到时长、待结算**的行动（`resolve_actions` 的查询项）。
 ///
 /// 为什么用 `QueryData` 而不是四元组：结算那一段本来就要读这四个字段，
@@ -299,9 +233,4 @@ impl Plugin for ActionPlugin {
         app.init_resource::<AvailableSkills>()
             .add_message::<CastRequest>();
     }
-}
-
-/// 行动槽里正在进行的行动（L2 只读）。
-pub fn active_of(active: Option<&ActiveActions>) -> &[Entity] {
-    active.map_or(&[], |active| active.actions())
 }

@@ -75,33 +75,9 @@ pub struct StatusDef {
     pub on_remove: Vec<Effect>,
 }
 
-/// 状态实例（组件，挂在自己的实体上）。
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct ActiveStatus {
-    /// 指向 [`StatusDef`] 实体。
-    pub def: Entity,
-    /// 哪种状态（离了定义也能答"这是什么"；`def` 被销毁时仍可用）。
-    pub id: Option<StatusId>,
-    /// 剩余时间（秒）。
-    pub remaining: f32,
-    /// 当前层数。
-    pub stacks: u8,
-    /// 施加者（效果的 `Caster`）。
-    pub source: Entity,
-    /// 距离下一个结算周期的累计时间。
-    pub tick_accumulator: f32,
-}
-
-/// 关系：状态实例 → 宿主。
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[relationship(relationship_target = Statuses)]
-pub struct AttachedTo(pub Entity);
-
-/// 关系反向集：宿主 → 身上的状态实例（由 Bevy 自动维护）。
-#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
-#[relationship_target(relationship = AttachedTo)]
-pub struct Statuses(Vec<Entity>);
-
+// **状态的原子（实例 + 槽）在 L0**：它们零依赖（只引用 `StatusId` / `Entity`）。
+// 这份文件留着的是**定义**（引用公式簇，R54/R59 把公式划给 L1）与生命周期系统。
+pub use crate::atoms::status::{ActiveStatus, AttachedTo, Statuses};
 /// 移除状态的原因：决定跑 `on_expire` 还是 `on_remove`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemovalReason {
