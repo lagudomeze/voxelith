@@ -1,3 +1,63 @@
+# ✅ 顶层只剩层名；`effect` 的 135 行大 match 按效果类别拆开
+
+## 一、`world/` 收敛到 `atoms/world/`
+
+顶层过去混着两种命名：`atoms` / `behaviors` 是**层名**，`world` 是**域名**。
+而 `world` 是**纯数据 + 纯计算、一行系统都没有**的不折不扣的 L0（比 `atoms` 还纯粹：
+`atoms/actor` 至少还有两个只查自己的系统），只是历史上跟着体素玩法长在顶层。
+
+```
+src/world/        →  src/atoms/world/          （6 个文件）
+lib.rs: pub mod world  →  pub use atoms::world
+```
+
+用**转出**而不是改所有调用点：`voxelith_axiom::world::…` 这个公开路径照旧可用
+（`prime` 的渲染层 / 存档 / 调试通道，共 40 多处引用，一行没改）。
+
+⚠️ **踩点记录**：Bevy 的 `TypePath` 跟着**定义所在模块**走，**不跟 `pub use` 走**。
+所以 `ChunkPos` / `VoxelStore` 在 BRP 查询里要用 `voxelith_axiom::atoms::world::…`
+—— Rust 路径能用不代表 BRP 认得。这条写进 `lib.rs` 与 `architecture.md` 了。
+（同样的坑上一轮在 `ActorTags` 上踩过：`...actor::axes::ActorTags`。）
+
+## 二、`effect/mod.rs` 的大 match 拆成四类
+
+原来是**一个 135 行的 `match`**：改池、加状态、摘状态、取消行动、打断、生成行动、
+写日志、对抗、序列、条件全挤在一起。拆完 `mod.rs` 只剩一张**扁平分派表**：
+
+```rust
+Effect::ModifyResource { .. } => resolve_mutation::modify_pool(..),
+Effect::ApplyStatus    { .. } => resolve_mutation::attach(..),
+Effect::RemoveStatus   { .. } => resolve_mutation::detach(..),
+
+Effect::DispelAction   { .. } => resolve_action::dispel(..),
+Effect::Interrupt      { .. } => resolve_action::interrupt(..),
+Effect::SpawnAction    { .. } => resolve_action::spawn(..),
+
+Effect::Log            { .. } => ctx.log.push(..),
+
+Effect::Contest(c)     => resolve_meta::contest(..),
+Effect::Sequence(es)   => resolve_meta::sequence(..),
+Effect::Conditional{..}=> resolve_meta::conditional(..),
+```
+
+| 文件 | 行 | 管什么 |
+|---|---|---|
+| `effect/mod.rs` | 216 | `Effect` 枚举 + `EffectContext` + 入口 + **分派** + 共享小工具 |
+| `effect/resolve_mutation.rs` | 73 | 改池 / 加状态 / 摘状态 |
+| `effect/resolve_action.rs` | 116 | 取消行动 / 打断 / 生成行动（反制的落点） |
+| `effect/resolve_meta.rs` | 115 | 对抗 / 序列 / 条件（**递归**入口） |
+| `effect/apply.rs` | 181 | 世界突变的**唯一落点**（没动） |
+
+三类分法不是按行数，是按**世界操作的性质**：改数据 / 动行动 / 只决定下一步跑什么。
+拆完每类的口子都有名字了。
+
+## 证据
+
+**295 测试全绿、守卫 10/10**；启动截图哈希 `52E53BE05531205A` 与改动前**逐像素相同**
+——两次都是行为中性的重构。
+
+---
+
 # ✅ L0 收拢：零依赖的**实例组件与关系**搬进 atoms
 
 ## 先量了一遍，结论和"L0 太小"不完全一样

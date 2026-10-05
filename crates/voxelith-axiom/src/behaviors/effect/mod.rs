@@ -17,20 +17,24 @@
 mod apply;
 mod blob;
 mod params;
+mod resolve_action;
+mod resolve_meta;
+mod resolve_mutation;
 
 pub use blob::{Blob, Reads};
 
-use apply::{apply_status, find_status, modify_resource, remove_status};
 pub use params::EffectParams;
+// 这两个虽然只在子模块里用，但对外是**效果系统的公开动作**
+// （`spawn_action` 给别的域排行动、`contest_verdict` 让调用方复现同一次判定）。
+pub use resolve_action::spawn_action;
+pub use resolve_meta::contest_verdict;
 
 use bevy_ecs::prelude::*;
 
-use crate::behaviors::action::{Action, CastsSkill, InitiatedBy, ResolveNow};
 use crate::behaviors::content::{ResourceId, SkillCatalog, SkillId, StatusCatalog, StatusId};
-use crate::behaviors::contest::{CombatRng, Contest, outcome_effects, resolve_contest};
+use crate::behaviors::contest::{CombatRng, Contest};
 use crate::behaviors::phase::{CombatLog, PendingThreat};
 use crate::behaviors::requirement::Condition;
-
 use crate::behaviors::value::{EvalContext, Value, Who, eval};
 
 /// 效果：世界突变的**受控闭集**。
@@ -144,90 +148,42 @@ pub(super) fn execute_with_power<B: Blob>(
 ) {
     match effect {
         Effect::ModifyResource { pool, delta, who } => {
-            let Some(actor) = pick(*who, caster, target) else {
-                return;
-            };
-            let amount = value_of(delta, caster, target, skill_power, ctx);
-            modify_resource(ctx, actor, *pool, amount);
+            resolve_mutation::modify_pool(*pool, delta, *who, caster, target, skill_power, ctx)
         }
-
         Effect::ApplyStatus {
             status,
             duration,
             who,
-        } => {
-            let Some(actor) = pick(*who, caster, target) else {
-                return;
-            };
-            let Some(&def_entity) = ctx.status_catalog.get(*status) else {
-                ctx.log
-                    .push(format!("未知状态 {status:?}（加载期应已拦截）"));
-                return;
-            };
-            let seconds = value_of(duration, caster, target, skill_power, ctx);
-            apply_status(ctx, def_entity, actor, caster, seconds);
-        }
-
+        } => resolve_mutation::attach(*status, duration, *who, caster, target, skill_power, ctx),
         Effect::RemoveStatus { status, who } => {
-            let Some(actor) = pick(*who, caster, target) else {
-                return;
-            };
-            let Some(&def_entity) = ctx.status_catalog.get(*status) else {
-                return;
-            };
-            remove_status(ctx, actor, def_entity);
+            resolve_mutation::detach(*status, *who, caster, target, ctx)
         }
 
-        Effect::DispelAction { who } => {
-            let victim = match who {
-                Who::Target => ctx.pending_threat.source.or(target),
-                Who::Caster => Some(caster),
-            };
-            if let Some(victim) = victim {
-                cancel_actions(ctx, victim);
-            }
-            ctx.pending_threat.action = None;
-            ctx.pending_threat.source = None;
-            ctx.pending_threat.target = None;
-        }
-
-        Effect::Interrupt { who } => {
-            if let Some(victim) = pick(*who, caster, target) {
-                cancel_actions(ctx, victim);
-            }
-        }
-
+        Effect::DispelAction { who } => resolve_action::dispel(*who, caster, target, ctx),
+        Effect::Interrupt { who } => resolve_action::interrupt(*who, caster, target, ctx),
         Effect::SpawnAction { skill, who } => {
-            let Some(owner) = pick(*who, caster, target) else {
-                return;
-            };
-            spawn_action(ctx, owner, *skill, target);
+            resolve_action::spawn(*skill, *who, caster, target, ctx)
         }
 
         Effect::Log { text } => ctx.log.push(text.clone()),
 
         Effect::Contest(contest) => {
-            let verdict =
-                contest_verdict(contest, caster, target, skill_power, &ctx.reads, ctx.rng);
-            for effect in outcome_effects(contest, verdict.outcome) {
-                execute_with_power(effect, caster, target, verdict.power, ctx);
-            }
+            resolve_meta::contest(contest, caster, target, skill_power, ctx)
         }
-
         Effect::Sequence(effects) => {
-            for effect in effects {
-                execute_with_power(effect, caster, target, skill_power, ctx);
-            }
+            resolve_meta::sequence(effects, caster, target, skill_power, ctx)
         }
-
         Effect::Conditional { cond, then, else_ } => {
-            let branch = if eval_condition(cond, caster, target, ctx) {
-                then
-            } else {
-                else_
-            };
-            execute_with_power(branch, caster, target, skill_power, ctx);
+            resolve_meta::conditional(cond, then, else_, caster, target, skill_power, ctx)
         }
+    }
+}
+
+/// `Who` → 具体实体（`Target` 缺失时退回 `Caster`）。
+pub(super) fn pick(who: Who, caster: Entity, target: Option<Entity>) -> Option<Entity> {
+    match who {
+        Who::Caster => Some(caster),
+        Who::Target => target.or(Some(caster)),
     }
 }
 
@@ -243,25 +199,6 @@ fn value_of<B: Blob>(
     eval(value, &eval_ctx)
 }
 
-/// 判定一次对抗（随机源单独传入：这样"只读快照"与"可变随机源"不会互相借住）。
-pub fn contest_verdict<B: Blob>(
-    contest: &Contest,
-    caster: Entity,
-    target: Option<Entity>,
-    skill_power: f32,
-    reads: &B,
-    rng: &mut CombatRng,
-) -> crate::behaviors::contest::Verdict {
-    let eval_ctx = EvalContext {
-        caster_resources: reads.pools(caster),
-        caster_stats: reads.stats(caster),
-        target_resources: target.and_then(|target| reads.pools(target)),
-        target_stats: target.and_then(|target| reads.stats(target)),
-        skill_power,
-    };
-    resolve_contest(contest, &eval_ctx, rng)
-}
-
 /// 搭一份求值快照（双方池 + 双方属性 + 强度）。
 fn eval_context<'a, B: Blob>(
     caster: Entity,
@@ -275,98 +212,5 @@ fn eval_context<'a, B: Blob>(
         target_resources: target.and_then(|target| ctx.reads.pools(target)),
         target_stats: target.and_then(|target| ctx.reads.stats(target)),
         skill_power,
-    }
-}
-
-/// 条件求值（宿主 = `Target`，兜底 `Caster`）。
-fn eval_condition<B: Blob>(
-    cond: &Condition,
-    caster: Entity,
-    target: Option<Entity>,
-    ctx: &EffectContext<'_, '_, '_, B>,
-) -> bool {
-    match cond {
-        Condition::Always => true,
-        Condition::ResourceBelow { pool, ratio } => {
-            let Some(entity) = pick(Who::Target, caster, target) else {
-                return false;
-            };
-            ctx.reads
-                .pools(entity)
-                .is_some_and(|pools| pools.pool(*pool).is_some_and(|p| p.ratio() < *ratio))
-        }
-        Condition::HasStatus(status) => {
-            let Some(entity) = pick(Who::Target, caster, target) else {
-                return false;
-            };
-            let Some(&def_entity) = ctx.status_catalog.get(*status) else {
-                return false;
-            };
-            find_status(ctx, entity, def_entity).is_some()
-        }
-        Condition::HasThreat => ctx.pending_threat.action.is_some(),
-    }
-}
-
-/// `Who` → 具体实体（`Target` 缺失时退回 `Caster`）。
-fn pick(who: Who, caster: Entity, target: Option<Entity>) -> Option<Entity> {
-    match who {
-        Who::Caster => Some(caster),
-        Who::Target => target.or(Some(caster)),
-    }
-}
-
-/// 取消一个实体当前的所有行动（`DispelAction` / `Interrupt` 共用）。
-///
-/// 行动实体由关系的反向集给出（`ActiveActions` 是 `InitiatedBy` 的反向集，Bevy 自动维护）。
-fn cancel_actions<B: Blob>(ctx: &mut EffectContext<'_, '_, '_, B>, victim: Entity) {
-    let mut targets: Vec<Entity> = {
-        let Some(slots) = ctx.reads.active_actions() else {
-            return;
-        };
-        slots
-            .get(victim)
-            .map(|slot| slot.actions().to_vec())
-            .unwrap_or_default()
-    };
-    targets.dedup();
-    for action in targets {
-        ctx.commands.entity(action).despawn();
-    }
-}
-
-/// 生成一个行动实例（`SpawnAction` 用）；瞬发技能打 `ResolveNow`，同帧结算。
-pub fn spawn_action<B: Blob>(
-    ctx: &mut EffectContext<'_, '_, '_, B>,
-    owner: Entity,
-    skill_id: SkillId,
-    target: Option<Entity>,
-) {
-    let Some(&skill_entity) = ctx.skill_catalog.get(skill_id) else {
-        return;
-    };
-    let duration = {
-        let Some(skills) = ctx.reads.skills() else {
-            return;
-        };
-        let Ok(skill) = skills.get(skill_entity) else {
-            return;
-        };
-        skill.duration
-    };
-    let action = ctx
-        .commands
-        .spawn((
-            Action {
-                elapsed: 0.0,
-                duration,
-                target,
-            },
-            CastsSkill(skill_entity),
-            InitiatedBy(owner),
-        ))
-        .id();
-    if duration <= 0.0 {
-        ctx.commands.entity(action).insert(ResolveNow);
     }
 }
