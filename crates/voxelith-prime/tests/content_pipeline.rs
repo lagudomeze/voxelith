@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimePlugin;
 use voxelith_axiom::atoms::actor::{
-    ActorState, ActorTag, ActorTags, Faction, Monster, Player, Resources, Stats,
+    ActorState, ActorTags, Faction, Monster, Player, Resources, Stats,
 };
 use voxelith_axiom::behaviors::combat::CombatPlugin;
 use voxelith_axiom::behaviors::content::{SkillCatalog, SkillId, StatusCatalog, Vocab};
@@ -206,14 +206,18 @@ fn content_assigns_faction_and_traits_separately() {
             .cloned()
             .expect("怪物有特性集合")
     };
-    assert!(
-        tags.has(ActorTag::Beast),
-        "monsters.ron 里的 traits 生效：{tags:?}"
-    );
-    assert!(
-        !tags.has(ActorTag::Undead),
-        "特性没有跟阵营混在一起：{tags:?}"
-    );
+    // 特性是**词汇 ID**：`monsters.ron` 里写的 `"beast"` 由 `vocabulary.ron` 的
+    // `tags` 表换成 ID。所以这里走 `Vocab` 查，而不是写死一个 Rust 枚举变体——
+    // 写死就等于把"野兽到底排第几"抄进测试，反而测不出映射对不对。
+    let (beast, undead) = {
+        let vocab = app.world().resource::<Vocab>();
+        (
+            vocab.tag("beast").expect("vocabulary.ron 登记了 beast"),
+            vocab.tag("undead").expect("vocabulary.ron 登记了 undead"),
+        )
+    };
+    assert!(tags.has(beast), "monsters.ron 里的 traits 生效：{tags:?}");
+    assert!(!tags.has(undead), "特性没有跟阵营混在一起：{tags:?}");
 }
 
 #[test]

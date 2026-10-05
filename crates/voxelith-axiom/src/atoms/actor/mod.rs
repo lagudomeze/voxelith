@@ -23,13 +23,12 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::Time;
 
-use crate::behaviors::content::{ResourceId, SkillId, StatId};
+use crate::atoms::vocabulary::{ResourceId, SkillId, StatId};
 
 mod axes;
 
 pub use axes::{
-    Actor, ActorRole, ActorTag, ActorTags, AiDriven, Faction, InputDriven, Monster, Player,
-    actor_role,
+    Actor, ActorRole, ActorTags, AiDriven, Faction, InputDriven, Monster, Player, actor_role,
 };
 
 // ------------------------------------------------------------------ Resource
@@ -326,6 +325,7 @@ pub fn tick_cooldowns(time: Res<Time>, mut actors: Query<&mut Cooldowns>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::atoms::vocabulary::ActorTagId;
 
     #[test]
     fn hostility_is_between_different_non_neutral_factions() {
@@ -346,11 +346,15 @@ mod tests {
     fn undead_is_a_trait_not_a_faction() {
         // 一个实体可以同时是"玩家阵营"与"亡灵"——两个维度互不干扰。
         let player_faction = Faction::Player;
-        let traits = ActorTags(vec![ActorTag::Undead]);
+        // 特性的取值是**词汇 ID**（由 `vocabulary.ron` 发号），不再是 Rust 枚举：
+        // 加一种种族只改内容，不动引擎。
+        let undead = ActorTagId(0);
+        let beast = ActorTagId(1);
+        let traits = ActorTags(vec![undead]);
 
         assert_eq!(player_faction, Faction::Player);
-        assert!(traits.has(ActorTag::Undead));
-        assert!(!traits.has(ActorTag::Beast));
+        assert!(traits.has(undead));
+        assert!(!traits.has(beast));
         assert_eq!(ActorTags::default().0.len(), 0, "默认没有特性");
     }
 

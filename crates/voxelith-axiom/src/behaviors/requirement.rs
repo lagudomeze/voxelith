@@ -12,7 +12,8 @@
 
 use bevy_ecs::prelude::*;
 
-use crate::atoms::actor::{ActorRole, ActorTag, ActorTags, Cooldowns, Faction, Resources, Stats};
+use crate::atoms::actor::{ActorRole, ActorTags, Cooldowns, Faction, Resources, Stats};
+use crate::atoms::vocabulary::ActorTagId;
 use crate::behaviors::content::{ResourceId, StatusId};
 use crate::behaviors::effect::Blob;
 use crate::behaviors::phase::PendingThreat;
@@ -47,7 +48,7 @@ pub enum Requirement {
     /// 目标是敌人（**阵营不同**，见 [`Faction::hostile_to`]）。
     TargetIsEnemy,
     /// 自己带某个标签。
-    CasterHasTag(ActorTag),
+    CasterHasTag(ActorTagId),
 }
 
 /// 效果内部的条件判据（比 `Requirement` 少，因为它不需要指向性判断）。
@@ -408,7 +409,7 @@ mod tests {
         let resources = Resources::default();
         let cooldowns = Cooldowns::default();
         let undead_only = skill(
-            vec![Requirement::CasterHasTag(ActorTag::Undead)],
+            vec![Requirement::CasterHasTag(ActorTagId(0))],
             Vec::new(),
             SkillTags::NONE,
         );
@@ -416,7 +417,7 @@ mod tests {
         let mut ctx = context(&resources, &cooldowns, &[], 0, None);
         assert!(!skill_available(&undead_only, &ctx));
 
-        let tags = ActorTags(vec![ActorTag::Undead]);
+        let tags = ActorTags(vec![ActorTagId(0)]);
         ctx.tags = Some(&tags);
         assert!(skill_available(&undead_only, &ctx));
     }
@@ -427,12 +428,12 @@ mod tests {
         let resources = Resources::default();
         let cooldowns = Cooldowns::default();
         let undead_only = skill(
-            vec![Requirement::CasterHasTag(ActorTag::Undead)],
+            vec![Requirement::CasterHasTag(ActorTagId(0))],
             Vec::new(),
             SkillTags::NONE,
         );
 
-        let undead = ActorTags(vec![ActorTag::Undead]);
+        let undead = ActorTags(vec![ActorTagId(0)]);
         let mut ctx = context(&resources, &cooldowns, &[], 0, None);
         ctx.faction = Some(Faction::Player);
         ctx.tags = Some(&undead);

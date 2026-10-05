@@ -179,6 +179,9 @@ pub fn build_vocab_into(vocab: &mut Vocab, ron: &VocabRon) {
     for status in &ron.statuses {
         vocab.add_status(&status.id);
     }
+    for tag in &ron.tags {
+        vocab.add_tag(&tag.id);
+    }
 }
 
 /// 登记技能名并解析技能定义（先有名字，效果才能引用技能）。

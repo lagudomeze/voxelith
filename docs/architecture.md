@@ -65,12 +65,22 @@ Cargo.toml                      # workspace：members / workspace.package / work
 crates/voxelith-axiom/          # L0 + L1
     Cargo.toml                  # bevy_ecs, bevy_app, bevy_reflect, bevy_time
     src/lib.rs                  # 顶部写规则注释（R95）
-    src/atoms/                  # L0
+    src/atoms/                  # L0：actor（角色数据与三条正交轴）+ vocabulary（词汇原子）
     src/behaviors/              # L1
+    src/world/                  # L0：体素世界的数据与纯计算（**第二个 L0 域**）
 crates/voxelith-prime/          # L2
     Cargo.toml                  # bevy（完整）, voxelith-axiom
     src/main.rs
 ```
+
+> **`world` 是第二个 L0 域，不是 L1。** 它自己一行系统都没有（`WorldPlugin` 只
+> `init_resource` + `add_message`），全是数据（`Voxel` / `Chunk` / `VoxelStore`）与纯计算
+> （噪声生成、DDA 射线）。之所以没放进 `atoms/`，是历史原因——它是跟着体素玩法长出来的，
+> 而 `atoms/` 当时只服务战斗。
+>
+> 这让顶层目录**混了两种命名**：`atoms` / `behaviors` 是**层名**，`world` 是**域名**。
+> 收敛（`atoms/world/`）会改动 `voxelith_axiom::world::…` 这个公开路径，属于纯机械改动；
+> 在决定之前，这里先把"它是 L0"写清楚，免得下一个人以为它可以依赖 L1。
 
 ### 版本统一
 

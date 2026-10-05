@@ -4,7 +4,8 @@
 
 use std::collections::HashMap;
 
-use crate::atoms::actor::{ActorTag, Faction};
+use crate::atoms::actor::Faction;
+use crate::atoms::vocabulary::ActorTagId;
 use crate::behaviors::content::catalog::{SkillCatalog, StatusCatalog};
 use crate::behaviors::content::descriptor::RoleRon;
 use crate::behaviors::content::vocabulary::{ResourceId, StatId, UnknownName, Vocab};
@@ -82,7 +83,7 @@ pub struct ActorTemplate {
     /// 阵营。
     pub faction: Faction,
     /// 特性标签。
-    pub traits: Vec<ActorTag>,
+    pub traits: Vec<ActorTagId>,
     /// 行为定义（会挂到实体上）。
     pub definition: MonsterDef,
     /// 初始池。

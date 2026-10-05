@@ -15,7 +15,9 @@
         // 阵营：谁打谁。
         faction: Monster,
         // 特性：跨阵营的性状（亡灵 / 构装体 / 野兽）。哥布林是野兽。
-        traits: [Beast],
+        // 取值是**词汇名**，必须在 `vocabulary.ron` 的 `tags` 里登记过；
+        // 写错了加载期直接报 unknown tag name，不会静默当没有。
+        traits: ["beast"],
     ),
     (
         // **`Faction::Neutral` 的内容用例**。

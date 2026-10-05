@@ -21,4 +21,14 @@
         (id: "staggered", name: "踉跄"),
         (id: "burning",   name: "灼烧"),
     ],
+    // 角色**特性**：跨阵营的性状，与 `faction` / `role` 是三条正交的轴。
+    //
+    // 它们是**词汇**而不是引擎枚举：加一种种族（"恶魔"、"植物"）只改这里 +
+    // 在 `monsters.ron` 的 `traits` 里用上，**不动 Rust**。
+    // 曾经它们是 `enum ActorTag { Undead, Construct, Beast }`，每加一种都要改引擎代码。
+    tags: [
+        (id: "undead",    name: "亡灵"),
+        (id: "construct", name: "构装体"),
+        (id: "beast",     name: "野兽"),
+    ],
 )

@@ -36,7 +36,7 @@ pub fn spawn_monster(commands: &mut Commands, pools: Resources, faction: Faction
         faction,                     // 阵营：内容给的
         pools,                       // 来自 atoms::actor（池）
         Stats::default(),            // 来自 atoms::actor（属性）
-        ActorTags(vec![ActorTag::Undead]), // 特性：跨阵营的性状
+        ActorTags(vec![undead_id]),  // 特性：跨阵营的性状（词汇 ID，见 vocabulary.ron）
         // Sprite 由 L2 表现层追加，不在数据层生成
     )).id()
 }

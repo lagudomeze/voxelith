@@ -94,7 +94,7 @@ pub fn resolve_requirement(
         RequirementRon::OffCooldown => Requirement::OffCooldown,
         RequirementRon::TargetAlive => Requirement::TargetAlive,
         RequirementRon::TargetIsEnemy => Requirement::TargetIsEnemy,
-        RequirementRon::CasterHasTag(tag) => Requirement::CasterHasTag(*tag),
+        RequirementRon::CasterHasTag(tag) => Requirement::CasterHasTag(vocab.tag(tag)?),
     })
 }
 
@@ -284,6 +284,7 @@ mod tests {
                 name: "护甲".into(),
             }],
             statuses: Vec::new(),
+            tags: Vec::new(),
         })
     }
 

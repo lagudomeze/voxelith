@@ -10,13 +10,16 @@
 //!
 //! | 模块 | 内容 |
 //! |---|---|
-//! | [`actor`] | 角色三大数据类别：资源池 [`actor::Resources`] / 属性 [`actor::Stats`] / 状态标记 [`actor::ActorState`]，以及冷却、行动能量、阵营标记 |
+//! | [`actor`] | 角色三大数据类别：资源池 [`actor::Resources`] / 属性 [`actor::Stats`] / 状态标记 [`actor::ActorState`]，以及冷却、行动能量、三条正交轴（引擎角色 / 阵营 / 特性） |
+//! | [`vocabulary`] | **词汇原子**：五种 `u16` 词汇 ID、`NameTable`、`UnknownName`（纯数据，L0 的组件拿它们当字段类型）
 //!
 //! 详见 [docs/combat-design.md](../../../docs/combat-design.md)、[docs/layers.md](../../../docs/layers.md)。
 
 pub mod actor;
+pub mod vocabulary;
 
 pub use actor::{
-    ActionEnergy, Actor, ActorPlugin, ActorRole, ActorState, ActorTag, ActorTags, Cooldowns,
-    Faction, Monster, Player, Pool, Resources, StatModifier, Stats,
+    ActionEnergy, Actor, ActorPlugin, ActorRole, ActorState, ActorTags, Cooldowns, Faction,
+    Monster, Player, Pool, Resources, StatModifier, Stats,
 };
+pub use vocabulary::{ActorTagId, NameTable, ResourceId, SkillId, StatId, StatusId, UnknownName};

@@ -1,61 +1,19 @@
-//! RON 描述结构：**内容文件的样子**（[docs/combat-design.md](../../../../../docs/combat-design.md) §8）。
+//! RON 描述结构：**内容文件的样子**（[docs/combat-design.md](../../../../../../docs/combat-design.md) §8）。
 //!
 //! 它们只是数据：字符串一律保持字符串，由 [`super::loader`] 负责解析成词汇 ID。
 //! 这样"文件格式"与"运行时数据"是两个概念，改了文件格式不会牵动引擎。
+//!
+//! 词汇表那一份（`vocabulary.ron`）在 [`vocabulary`]，因为它和技能 / 状态的形状差得远。
 
 use std::collections::HashMap;
 
-use crate::atoms::actor::{ActorTag, Faction};
+use crate::atoms::actor::Faction;
 use crate::behaviors::contest::Formula;
 use crate::behaviors::skill::SkillTag;
 
-/// `vocabulary.ron`：资源池 / 属性 / 状态的名字定义。
-#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
-#[serde(default)]
-pub struct VocabRon {
-    /// 资源池。
-    pub resources: Vec<ResourceRon>,
-    /// 属性。
-    pub stats: Vec<StatRon>,
-    /// 状态。
-    pub statuses: Vec<StatusDefRon>,
-}
+mod vocabulary;
 
-/// 一种资源池的词汇条目。
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-pub struct ResourceRon {
-    /// 稳定名字（`"hp"`）。
-    pub id: String,
-    /// 显示名。
-    pub name: String,
-    /// 上限。
-    pub max: f32,
-    /// 每秒自然恢复。
-    #[serde(default)]
-    pub regen: f32,
-    /// 生成时是否满池（默认满）。
-    #[serde(default = "default_true")]
-    pub start_full: bool,
-}
-
-/// 一个属性的词汇条目。
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-pub struct StatRon {
-    /// 稳定名字（`"strength"`）。
-    pub id: String,
-    /// 显示名。
-    pub name: String,
-}
-
-/// 一种状态的词汇条目（`vocabulary.ron` 里只有名字）。
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-pub struct StatusDefRon {
-    /// 稳定名字（`"stunned"`）。
-    pub id: String,
-    /// 显示名。
-    pub name: String,
-}
-
+pub use vocabulary::{ResourceRon, StatRon, StatusDefRon, TagRon, VocabRon};
 /// 一个技能定义。
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct SkillRon {
@@ -116,7 +74,7 @@ pub enum RequirementRon {
     /// 目标是敌人。
     TargetIsEnemy,
     /// 自己带某个标签。
-    CasterHasTag(ActorTag),
+    CasterHasTag(String),
 }
 
 /// 技能消耗（RON 形态）。
@@ -463,7 +421,7 @@ pub struct ActorRon {
     /// 阵营（**内容可配**：可以是玩家侧、怪物侧或中立）。
     pub faction: Faction,
     /// **特性**标签（亡灵 / 构装体 / 野兽……与阵营无关，可同时有多个）。
-    pub traits: Vec<ActorTag>,
+    pub traits: Vec<String>,
 }
 
 /// `role` 漏写时的落点：**故意 panic**，把"必须表态"变成启动期的明确失败。
@@ -504,10 +462,6 @@ pub struct AiChoiceRon {
     /// 权重。
     #[serde(default = "default_weight")]
     pub weight: f32,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_duration() -> f32 {

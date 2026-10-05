@@ -78,6 +78,77 @@ monster_act            决策槽有货 + 威胁窗口空 → 生成威胁行动 
 
 ---
 
+# ✅ 分层修正：词汇原子下沉到 L0；角色特性从 Rust 枚举改成词汇 ID
+
+你问了两件事，查完之后发现它们**同一个根因**。
+
+## 根因：一批通用原子被放在了 L1
+
+L0 的组件要拿这些类型当字段：
+
+```text
+atoms/actor  ──►  behaviors::content::{ResourceId, SkillId, StatId}   ✗ L0 依赖 L1
+world        ──►  behaviors::content::{NameTable, UnknownName}        ✗ 同上
+```
+
+`Resources` 的键、`Cooldowns` 的键、`Stats` 的键全是这些 ID —— **砖块向搭砖规则要尺寸**。
+`atoms` 显得空，是因为本该在它这里的东西住在 L1（它们的第一个用户是战斗词汇表）。
+
+**修法**：新增 `atoms/vocabulary.rs`（五种 `u16` 词汇 ID + `NameTable` + `UnknownName`），
+`behaviors/content/vocabulary.rs` 只留 `Vocab`（聚合 + 解析），旧路径用 `pub use` 转出。
+**两条反向依赖消失。**
+
+## `world/`：第二个 L0 域，却没住在 L0
+
+`world/` **1677 行，一行系统都没有**（`WorldPlugin` 只 `init_resource` + `add_message`），
+全是数据（`Voxel` / `Chunk` / `VoxelStore`）与纯计算（噪声生成 / DDA 射线）——
+**比 `atoms/` 还纯粹的 L0**。
+
+而它：
+
+- 在顶层当 `atoms` 的兄弟 ⇒ 顶层混着**层名**（`atoms` / `behaviors`）与**域名**（`world`）；
+- **`architecture.md` §5 的目录表里根本没有它**（文档落后于代码）；
+- 自己的模块文档只含糊地写"属于 L0/L1"。
+
+已在 `architecture.md` 里写明"它是第二个 L0 域"。
+**物理收敛（`atoms/world/`）没做**：那要改 `voxelith_axiom::world::…` 这个公开路径，
+是纯机械改动，但属于"要不要"的选择，等你定。
+
+## 特性（亡灵 / 野兽）不该是 Rust 枚举
+
+你的直觉对，而且比"放错文件"更严重：它**违反了项目自己的规则**。
+
+`layers.md` §9 的判据是**"这个集合会随游戏内容增长吗"** → 会就走 `.ron` + ID。
+"亡灵 / 构装体 / 野兽"明显会（种族、类型），却做成了 `enum ActorTag`——
+**每加一种种族都要改引擎并重编**。
+
+更糟的是 `combat-design.md` §11 把它列成显式例外（"✅（一行枚举）"），
+而**同一节往下两段**的标准写的正相反。规则文档自己打架。
+
+**改成词汇 ID**：`ActorTagId` + `vocabulary.ron` 的 `tags:` 表 + `traits: ["beast"]`。
+
+**判据不是"是不是标签"，而是"带不带规则"**：
+
+| | 是什么 | 为什么 |
+|---|---|---|
+| `Faction` | **仍是枚举** | `hostile_to` 是一条引擎级敌对规则 |
+| `ActorTagId` | 词汇 ID | 只是用来比较相等性的名字 |
+
+## 证据
+
+| 测试 | 钉住什么 |
+|---|---|
+| `a_brand_new_trait_needs_no_rust_change` | 造一个引擎**从没见过**的 `"demon"`，只加进 `VocabRon` 就能用 ⇒ "加内容不改代码" |
+| `an_unknown_trait_name_is_reported` | 特性名写错报 `UnknownName{kind:"tag"}`，**不静默丢** |
+| 变异：把没登记的名字静静当成 ID 0 | 被第二条抓到 |
+
+**真机**：BRP 读到哥布林的 `ActorTags = [2]`（`undead=0, construct=1, beast=2`）✓；
+启动截图哈希 `52E53BE05531205A` 与改动前**逐像素相同**。
+
+顺带：`descriptor.rs` 越过 R26 → 切成 `descriptor/{mod,vocabulary}.rs`。
+
+---
+
 # ✅ 查询写法与组件存储：`QueryData` / `QueryFilter` / `SparseSet`
 
 ## 先做了一遍普查，再动手

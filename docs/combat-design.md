@@ -120,7 +120,7 @@ pub enum Requirement {
     HasThreat, NoActiveAction, OffCooldown,
     InStatus(StatusId), NotInStatus(StatusId),
     TargetAlive, TargetIsEnemy,
-    CasterHasTag(ActorTag),
+    CasterHasTag(ActorTagId),
 }
 pub enum Condition { Always, ResourceBelow { pool: ResourceId, ratio: f32 }, HasStatus(StatusId), HasThreat }
 pub enum Targeting { SelfOnly, ThreatSource, CurrentSelection, NearestEnemy }
@@ -138,11 +138,12 @@ pub struct Cost { pub pool: ResourceId, pub amount: f32 }
 |---|---|---|---|
 | **引擎角色** | `Player` / `Monster` 标记组件 | 谁听输入、谁自己 tick？ | 几乎不变（引擎决定） |
 | **阵营** | [`Faction`] 组件（`Player` / `Monster` / `Neutral`） | 谁打谁？ | 内容可配 |
-| **特性** | [`ActorTags`]（`Undead` / `Construct` / `Beast`） | 它是什么东西？ | 内容可配，可同时有多个 |
+| **特性** | [`ActorTags`]（`ActorTagId`：亡灵 / 野兽……） | 它是什么东西？ | **内容定义**（`vocabulary.ron` 的 `tags`），可同时有多个 |
 
 ```rust
 // 一个"玩家侧的亡灵"——三条轴各写各的，没有任何冲突：
-commands.spawn((Actor, Player, Faction::Player, ActorTags(vec![ActorTag::Undead])));
+// 特性是词汇 ID：`vocabulary.ron` 里登记 `undead`，加载期换成 ID。
+commands.spawn((Actor, Player, Faction::Player, ActorTags(vec![undead_id])));
 ```
 
 **判定用哪条轴**：
@@ -150,10 +151,10 @@ commands.spawn((Actor, Player, Faction::Player, ActorTags(vec![ActorTag::Undead]
 | 想判断 | 用 | 不要用 |
 |---|---|---|
 | "这招对敌人有效" | `Requirement::TargetIsEnemy` → 比 `Faction` | ❌ 比 `ActorTags`（特性跟敌意无关） |
-| "只有亡灵能学" | `Requirement::CasterHasTag(ActorTag::Undead)` | ❌ 加一个 `ActorTag::UndeadFaction` |
+| "只有亡灵能学" | `Requirement::CasterHasTag(undead_id)` | ❌ 加一个"亡灵阵营" |
 | "这个实体要等玩家输入" | `With<Player>` | ❌ 用 `Faction::Player`（一个由 AI 控制的友方 NPC 也是玩家阵营） |
 
-**升级路径**：`ActorTag` 现在是"选项很少、没有数值"的枚举。如果某类判定涨到十几个选项、
+**升级路径**：`ActorTagId` 现在是"没有数值"的纯标签（选项多寡无所谓，加一个只改 `.ron`）。如果某类判定需要程度、
 还带参数（"亡灵抗性 30%"），那它就该变成**带数值的属性**（`Stats` + 一条 `Contest`），
 而不是继续往枚举里堆变体。见 [§11 扩展手册](#11-扩展手册)。
 
@@ -392,7 +393,7 @@ ContentManifest（SceneComponent，路径全写在 ContentManifest::scene() 里�
 
 | 文件 | 内容 | 解析结果 |
 |---|---|---|
-| `vocabulary.ron` | 资源池 / 属性 / 状态的名字与默认值 | `Vocab`（字符串 → 词汇 ID） |
+| `vocabulary.ron` | 资源池 / 属性 / 状态 / **特性**的名字与默认值 | `Vocab`（字符串 → 词汇 ID） |
 | `skills.ron` | 技能定义 | `SkillCatalog`（SkillId → `Skill` 实体） |
 | `statuses.ron` | 状态定义 | `StatusCatalog`（StatusId → `StatusDef` 实体） |
 | `players.ron` | **玩家**的池 / 属性 / 阵营 / 特性 | `ActorTemplate`（L2 → `spawn_actor`） |
@@ -531,7 +532,7 @@ L2 不定义任何战斗数值，只发 `CastRequest`、只读 `AvailableSkills`
 | **把玩家换成 AI 控制的友军** | `players.ron` 里该条改 `role: Monster` + 补 `ai` | ❌ |
 | 改伤害公式 | 改技能的 `Contest`（`attacker` / `defender` / `threshold`） | ❌ |
 | 给角色换个阵营 / 加个特性 | 改对应 `.ron` 的 `faction` / `traits` | ❌ |
-| 加一种新**特性**（种族 / 类型） | `ActorTag` 加变体 + 在内容里用上 | ✅（一行枚举） |
+| 加一种新**特性**（种族 / 类型） | `vocabulary.ron` 的 `tags` 加一行 + 在 `traits` 里用上 | ❌ |
 | 加一种新**阵营** | `Faction` 加变体 + 在 `hostile_to` 里表态 | ✅（罕见） |
 | 加一种新对抗方式 | `Formula` 加变体 + `resolve_contest` 分支 | ✅（罕见） |
 | 加一种新原子效果 | `Effect` 加变体 + `execute_effect` 分支 | ✅（罕见） |
@@ -540,7 +541,7 @@ L2 不定义任何战斗数值，只发 `CastRequest`、只读 `AvailableSkills`
 
 **判断标准**：这个集合会随游戏**内容**增长吗？会 → RON；不会（是引擎能力）→ Rust。
 
-**别把"属性"做成"标签"**：`ActorTag` 只适合"选项少、没有数值、纯粹用来分支"的性状。
+**别把"属性"做成"标签"**：`ActorTagId` 只适合"没有数值、纯粹用来分支"的性状。
 一旦某个性状需要程度 / 抗性 / 成长（"亡灵抗性 30%"），就把它做成 `Stats` 里的一个属性，
 让 `Contest` 去比较——枚举变体堆不出数值。
 

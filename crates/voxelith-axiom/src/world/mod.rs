@@ -40,7 +40,7 @@ pub use voxel::{Voxel, VoxelAppearance, VoxelId, VoxelPalette};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
-use crate::behaviors::content::vocabulary::{NameTable, UnknownName};
+use crate::atoms::vocabulary::{NameTable, UnknownName};
 
 /// 世界配置（**Resource**）：地形与存储的引擎级参数。
 ///

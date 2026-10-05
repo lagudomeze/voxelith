@@ -2,6 +2,7 @@
 //!
 //! 只做"翻译"，不做语义判断；查不到名字就报 [`LoaderError`](super::LoaderError)。
 
+use crate::atoms::vocabulary::ActorTagId;
 use crate::behaviors::content::descriptor::{
     ActorRon, AiChoiceRon, RoleRon, SkillRon, StackingRon, StatusRon, TargetingRon,
 };
@@ -166,12 +167,20 @@ pub(super) fn resolve_actors(
             stats.push((vocab.stat(name)?, *value));
         }
 
+        // 特性：内容是名字列表（`traits: ["beast"]`），这里换成词汇 ID。
+        // **漏配不会静默** —— 没在 `vocabulary.ron` 里登记过的特性名直接报错。
+        let traits: Vec<ActorTagId> = ron
+            .traits
+            .iter()
+            .map(|name| vocab.tag(name))
+            .collect::<Result<_, _>>()?;
+
         let template = ActorTemplate {
             key: ron.id.clone(),
             name: ron.name.clone(),
             role: ron.role,
             faction: ron.faction,
-            traits: ron.traits.clone(),
+            traits,
             definition: MonsterDef {
                 name: ron.name.clone(),
                 ai,

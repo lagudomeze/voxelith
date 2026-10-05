@@ -125,8 +125,16 @@ L0 的典型成员：`Resources`（资源池 + 唯一写入口 + 自然恢复）
 
 | 会增长吗 | 放哪 | 例子 |
 |---|---|---|
-| 会（内容） | `.ron` 文件，L2 读进来、L1 解析成 ID | 技能、状态、资源池与属性定义、怪物与 AI |
+| 会（内容） | `.ron` 文件，L2 读进来、L1 解析成 ID | 技能、状态、资源池与属性定义、**角色特性（亡灵 / 野兽……）**、怪物与 AI |
 | 不会（引擎能力） | Rust 枚举 / `XxxConfig`（Resource） | `Value` / `Effect` / `Requirement` / `Formula`、随机种子 |
+
+> **这张表曾经的例外**：角色特性（`ActorTag`）是"会增长"那一栏，却做成了 Rust 枚举
+> （`enum ActorTag { Undead, Construct, Beast }`），于是**每加一种种族都要改引擎并重编**——
+> 正是"加内容不改代码"要防的事。现在它是词汇 ID（[`ActorTagId`](../crates/voxelith-axiom/src/atoms/vocabulary.rs)），
+> 在 `vocabulary.ron` 的 `tags` 里登记。
+>
+> **判据不是"是不是标签"，而是"带不带规则"**：`Faction` 仍然是枚举，因为
+> `Faction::hostile_to` 是一条引擎级的敌对规则；而"亡灵"只是用来比较相等性的名字。
 
 - **引擎级可调参数**放 `XxxConfig`（如 `CombatConfig`、`VirtualTimeConfig`），由内容层注入后
   `CombatPlugin` 分发；子域自己的 `init_resource` 只在"独立使用 / 单测"时兜底。

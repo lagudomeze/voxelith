@@ -9,6 +9,8 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryFilter;
 use bevy_reflect::Reflect;
 
+use crate::atoms::vocabulary::ActorTagId;
+
 /// 角色标记：有战斗数据、能行动、能持有状态。
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Component)]
@@ -101,32 +103,31 @@ impl Faction {
     }
 }
 
-/// 角色**特性**标签（内容可配，供 `Requirement::CasterHasTag` 用）。
+/// 角色身上的**特性**标签集合（可同时有多个）。
 ///
-/// 这里只放"跨越阵营的性状"：亡灵既可能是玩家也可能是怪物，
-/// 所以它**不是**阵营（那就该用 [`Faction`]），而是特性。
+/// ## 为什么存 `Vec<ActorTagId>` 而不是一个枚举
 ///
-/// 新增特性的成本：加一个变体 + 在 `vocabulary.ron` / 内容里用上它。
-/// 如果某类判定将来涨到十几个选项、还带参数（"抗性 30%"），那就该从
-/// "枚举标签"升级成"带数值的属性"（`Stats`），而不是继续堆枚举。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, Reflect)]
-pub enum ActorTag {
-    /// 亡灵：不吃治疗、吃驱散之类的判定基础。
-    Undead,
-    /// 构装体：免疫中毒 / 精神类状态。
-    Construct,
-    /// 野兽：可被驯服 / 安抚。
-    Beast,
-}
-
-/// 角色身上的特性标签集合（可同时有多个）。
+/// "亡灵 / 构装体 / 野兽"这些取值**随游戏内容增长**：
+/// [docs/layers.md](../../../../../docs/layers.md) §9 的判据是
+/// **"这个集合会随游戏内容增长吗"** —— 会，所以走 `vocabulary.ron` + ID，
+/// 于是**加一种种族只改内容**，不动 Rust（与"加内容不改代码"一致）。
+///
+/// 曾经它是个 `enum ActorTag`，代价是每加一种特性都要动引擎代码；
+/// 而且那个枚举住在 L0，等于把游戏世界观焊进了原子层。
+///
+/// **与 [`Faction`] 的区别不是"是不是标签"，而是"带不带规则"**：
+/// `Faction::hostile_to` 是一条引擎级的敌对规则，所以它是枚举；
+/// 特性只是用来比较相等性的名字，所以它是词汇。
+///
+/// 如果某类特性将来涨到"带参数"（"亡灵抗性 30%"），那就该升级成
+/// 带数值的属性（`Stats`），而不是继续往词汇表里堆名字。
 #[derive(Component, Debug, Clone, Default, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
-pub struct ActorTags(pub Vec<ActorTag>);
+pub struct ActorTags(pub Vec<ActorTagId>);
 
 impl ActorTags {
-    /// 是否带某个标签。
-    pub fn has(&self, tag: ActorTag) -> bool {
+    /// 是否带某个特性。
+    pub fn has(&self, tag: ActorTagId) -> bool {
         self.0.contains(&tag)
     }
 }

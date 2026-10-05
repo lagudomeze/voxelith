@@ -8,10 +8,11 @@
 use super::*;
 
 // 只在测试里构造描述结构时用到的类型（生产路径走 `resolve_defs`）。
-use crate::atoms::actor::{ActorTag, Faction};
+use crate::atoms::actor::Faction;
+use crate::atoms::vocabulary::ActorTagId;
 use crate::behaviors::content::descriptor::{
     ActorRon, AiChoiceRon, ConditionRon, CostRon, EffectRon, ResourceRon, RoleRon, StatRon,
-    StatusDefRon, TargetingRon, ValueRon, WhoRon,
+    StatusDefRon, TagRon, TargetingRon, ValueRon, WhoRon,
 };
 use crate::behaviors::skill::Skill;
 
@@ -40,6 +41,12 @@ fn vocabulary() -> VocabRon {
         statuses: vec![StatusDefRon {
             id: "stunned".into(),
             name: "眩晕".into(),
+        }],
+        // 特性也走词汇表：`traits: ["undead"]` 要在这里登记过，
+        // 否则加载期报 `unknown tag name`（而不是静默当没有）。
+        tags: vec![TagRon {
+            id: "undead".into(),
+            name: "亡灵".into(),
         }],
     }
 }
@@ -260,7 +267,7 @@ fn actor_templates_carry_their_pools_and_stats() {
         energy_rate: 1.0,
         energy_threshold: 3.0,
         faction: Faction::Monster,
-        traits: vec![ActorTag::Undead],
+        traits: vec!["undead".to_owned()],
     };
 
     let content = load_all(
@@ -281,7 +288,107 @@ fn actor_templates_carry_their_pools_and_stats() {
     assert_eq!(template.definition.ai.len(), 1);
     assert_eq!(content.pools.len(), 2, "池的生成参数也在产物里");
     assert_eq!(template.faction, Faction::Monster, "阵营原样带出");
-    assert_eq!(template.traits, vec![ActorTag::Undead], "特性原样带出");
+    assert_eq!(
+        template.traits,
+        vec![ActorTagId(0)],
+        "特性名解析成词汇 ID（`undead` 是 vocabulary.ron 里第一个）"
+    );
+}
+
+/// **特性是一种词汇**：新加一种种族/类型只要改 `.ron`，**不动 Rust**。
+///
+/// 这条测试里出现的 `"demon"` 在引擎代码里**任何地方都不存在**——
+/// 它只活在下面这个 `VocabRon` 里。能加载、能戴上，就说明"加内容不改代码"成立。
+/// （它曾经做不到：特性是 `enum ActorTag`，加一种就得改引擎并重编。）
+#[test]
+fn a_brand_new_trait_needs_no_rust_change() {
+    let mut world = World::new();
+    let mut commands = world.commands();
+
+    // 在词汇表里登记一种**引擎从没见过**的特性。
+    let mut vocab_ron = vocabulary();
+    vocab_ron.tags.push(TagRon {
+        id: "demon".into(),
+        name: "恶魔".into(),
+    });
+
+    let monster = ActorRon {
+        id: "imp".into(),
+        name: "小恶魔".into(),
+        role: RoleRon::Monster,
+        resources: vec![("hp".into(), 20.0)],
+        stats: vec![("strength".into(), 3.0)],
+        ai: vec![AiChoiceRon {
+            skill: "basic_attack".into(),
+            when: ConditionRon::Always,
+            weight: 1.0,
+        }],
+        energy_rate: 1.0,
+        energy_threshold: 3.0,
+        faction: Faction::Monster,
+        traits: vec!["demon".to_owned()],
+    };
+
+    let content = load_all(
+        &mut commands,
+        &vocab_ron,
+        &[attack_skill()],
+        &[],
+        &[monster],
+        &WorldRon::default(),
+    )
+    .expect("`demon` 已登记，该能加载");
+
+    let demon = content.vocab.tag("demon").expect("词汇表里有它");
+    assert!(
+        content.monsters[0].traits.contains(&demon),
+        "新特性直接可用，中间没有任何 Rust 改动"
+    );
+}
+
+/// **没登记过的特性名会报错，不会被静默丢掉。**
+///
+/// 静默丢掉是这类"标签式"内容最容易出的问题：怪照常生成、技能照常可用，
+/// 而那条特性**从来没生效过**，谁也不知道。
+#[test]
+fn an_unknown_trait_name_is_reported() {
+    let mut world = World::new();
+    let mut commands = world.commands();
+    let monster = ActorRon {
+        id: "goblin".into(),
+        name: "哥布林".into(),
+        role: RoleRon::Monster,
+        resources: vec![("hp".into(), 30.0)],
+        stats: vec![("strength".into(), 4.0)],
+        ai: vec![AiChoiceRon {
+            skill: "basic_attack".into(),
+            when: ConditionRon::Always,
+            weight: 1.0,
+        }],
+        energy_rate: 1.0,
+        energy_threshold: 3.0,
+        faction: Faction::Monster,
+        // `vocabulary.ron` 的 `tags` 里没有它。
+        traits: vec!["ghost".to_owned()],
+    };
+
+    let error = load_all(
+        &mut commands,
+        &vocabulary(),
+        &[attack_skill()],
+        &[],
+        &[monster],
+        &WorldRon::default(),
+    )
+    .expect_err("没登记的特性名该报错");
+
+    match error {
+        LoaderError::UnknownName(error) => {
+            assert_eq!(error.kind, "tag");
+            assert_eq!(error.name, "ghost");
+        }
+        other => panic!("该是 UnknownName，实际 {other:?}"),
+    }
 }
 
 /// **端到端**：内容作者在 `.ron` 里写一条曲线，从解析到求值都走通。
