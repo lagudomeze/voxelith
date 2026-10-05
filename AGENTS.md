@@ -64,6 +64,7 @@ tokei --sort code                       # 无文件 > 500 行
 | [docs/events-and-plugins.md](docs/events-and-plugins.md) | 事件通信 + Plugin 使用（规则 33–46） |
 | [docs/bevy-events.md](docs/bevy-events.md) | **Message vs Event**：选择依据、决策树、代码模板 |
 | [docs/bevy-queries.md](docs/bevy-queries.md) | **查询与组件存储**：`QueryData` / `QueryFilter` 何时值得写、`Table` vs `SparseSet` 的判据 |
+| [docs/movement.md](docs/movement.md) | **移动与空间**：格子 = 体素块、位置 = `f(now)` 纯函数、分层归属、路径规则（条目尚无 `R<n>` 编号） |
 | [docs/combat-design.md](docs/combat-design.md) | **半即时战斗（唯一权威）**：Skill/Action/Status、`Effect` 原语、`Contest` 对抗、`CombatPhase` 时间控制、RON 配置 |
 | [docs/combat.md](docs/combat.md) | 战斗系统的分层与事件流水线（规则 47–63；伤害管线部分已被 combat-design 取代） |
 | [docs/combat-mechanics.md](docs/combat-mechanics.md) | 旧战斗机制设计稿（**已被取代**，保留取舍过程） |
