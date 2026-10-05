@@ -28,7 +28,8 @@ pub use descriptor::{
     TargetingRon, ValueRon, VocabRon, WhoRon,
 };
 pub use loader::{
-    ActorTemplate, LoadedContent, LoaderError, PoolTemplate, WorldTemplate, build_vocab, load_all,
-    resource_labels, stat_labels, status_labels,
+    ActorTemplate, LoadedContent, LoaderError, PoolTemplate, ReusedDefs, WorldTemplate,
+    build_vocab, build_vocab_into, load_all, load_all_reusing, resource_labels, stat_labels,
+    status_labels,
 };
 pub use vocabulary::{NameTable, ResourceId, SkillId, StatId, StatusId, UnknownName, Vocab};

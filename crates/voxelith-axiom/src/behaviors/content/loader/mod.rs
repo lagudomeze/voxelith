@@ -37,6 +37,51 @@ pub use types::{ActorTemplate, LoadedContent, LoaderError, PoolTemplate, WorldTe
 
 use resolve_defs::{resolve_actors, resolve_skill, resolve_status, resolve_world};
 
+/// 重新翻译时**复用的东西**。
+///
+/// ## 为什么必须复用定义实体
+///
+/// `Action` 用 `CastsSkill(Entity)` 指着技能定义实体，`ActiveStatus` 用 `def` 指着状态定义
+/// 实体。重新翻译时若换一批新实体，世界里就会留下**悬空引用**——而悬空引用不会报错：
+/// 表现层只是再也画不出那一招 / 那个状态的效果。
+///
+/// 所以同 ID 一律**写在原实体上**，只有真正新增的 ID 才 spawn 新实体。
+///
+/// ## 为什么必须复用词汇表
+///
+/// 词汇 ID 是**按登记顺序**发的（`NameTable::register` 用当前长度当下标）。从零重建
+/// 词汇表意味着"在 `skills.ron` 中间插一条"会让它后面**所有**技能的 ID 整体后移——
+/// 那等于把 A 的定义悄悄换成了 B 的。拿旧表当底再登记，老名字的 ID 原地不动，
+/// 新名字追加在后面。
+#[derive(Debug, Clone, Default)]
+pub struct ReusedDefs {
+    /// 上一次翻译出来的词汇表。
+    pub vocab: Vocab,
+    /// 上一次翻译出来的技能目录。
+    pub skills: SkillCatalog,
+    /// 上一次翻译出来的状态目录。
+    pub statuses: StatusCatalog,
+}
+
+impl ReusedDefs {
+    /// 旧目录里有、新目录里已经没有的实体（重新翻译后应当销毁）。
+    pub fn stale(&self, fresh: &LoadedContent) -> Vec<Entity> {
+        let mut stale: Vec<Entity> = self
+            .skills
+            .iter()
+            .filter(|(id, _)| fresh.skills.get(*id).is_none())
+            .map(|(_, entity)| entity)
+            .collect();
+        stale.extend(
+            self.statuses
+                .iter()
+                .filter(|(id, _)| fresh.statuses.get(*id).is_none())
+                .map(|(_, entity)| entity),
+        );
+        stale
+    }
+}
+
 /// 从六份描述加载全部内容（并 spawn 技能 / 状态的定义实体）。
 ///
 /// `actors_ron` 同时承载玩家与怪物：`role` 决定它归到哪一组。
@@ -50,9 +95,45 @@ pub fn load_all(
     actors_ron: &[ActorRon],
     world_ron: &WorldRon,
 ) -> Result<LoadedContent, LoaderError> {
-    let mut vocab = build_vocab(vocab_ron);
-    let skills = load_skills(commands, &mut vocab, skills_ron)?;
-    let statuses = load_statuses(commands, &vocab, statuses_ron)?;
+    load_all_reusing(
+        commands,
+        vocab_ron,
+        skills_ron,
+        statuses_ron,
+        actors_ron,
+        world_ron,
+        None,
+    )
+}
+
+/// 同 [`load_all`]，但可以**复用已有的定义实体**（热重载用，见 [`ReusedDefs`]）。
+#[allow(clippy::too_many_arguments)]
+pub fn load_all_reusing(
+    commands: &mut Commands,
+    vocab_ron: &VocabRon,
+    skills_ron: &[SkillRon],
+    statuses_ron: &[StatusRon],
+    actors_ron: &[ActorRon],
+    world_ron: &WorldRon,
+    reuse: Option<&ReusedDefs>,
+) -> Result<LoadedContent, LoaderError> {
+    let mut vocab = match reuse {
+        Some(reuse) => reuse.vocab.clone(),
+        None => Vocab::default(),
+    };
+    build_vocab_into(&mut vocab, vocab_ron);
+    let skills = load_skills(
+        commands,
+        &mut vocab,
+        skills_ron,
+        reuse.map(|reuse| &reuse.skills),
+    )?;
+    let statuses = load_statuses(
+        commands,
+        &vocab,
+        statuses_ron,
+        reuse.map(|reuse| &reuse.statuses),
+    )?;
 
     // 覆盖检查：声明了却没人引用的池。
     let used = collect_used_resources(skills_ron, statuses_ron, &vocab)?;
@@ -81,6 +162,14 @@ pub fn load_all(
 /// 构造词汇表（池 → 属性 → 状态，各自按文件顺序编号）。
 pub fn build_vocab(ron: &VocabRon) -> Vocab {
     let mut vocab = Vocab::default();
+    build_vocab_into(&mut vocab, ron);
+    vocab
+}
+
+/// 往已有词汇表里登记（**已登记的名字保留原 ID**，新名字追加在后面）。
+///
+/// 热重载靠这条性质：在 `skills.ron` 中间插一条，不会把它后面所有技能的 ID 顶掉一位。
+pub fn build_vocab_into(vocab: &mut Vocab, ron: &VocabRon) {
     for resource in &ron.resources {
         vocab.add_resource(&resource.id);
     }
@@ -90,14 +179,16 @@ pub fn build_vocab(ron: &VocabRon) -> Vocab {
     for status in &ron.statuses {
         vocab.add_status(&status.id);
     }
-    vocab
 }
 
 /// 登记技能名并解析技能定义（先有名字，效果才能引用技能）。
+///
+/// `reuse` 非空时**同 ID 写在原实体上**（见 [`ReusedDefs`]）。
 fn load_skills(
     commands: &mut Commands,
     vocab: &mut Vocab,
     ron: &[SkillRon],
+    reuse: Option<&SkillCatalog>,
 ) -> Result<SkillCatalog, LoaderError> {
     for skill in ron {
         vocab.add_skill(&skill.id);
@@ -107,23 +198,36 @@ fn load_skills(
     for skill in ron {
         let id = vocab.skill(&skill.id)?;
         let definition = resolve_skill(skill, id, vocab)?;
-        let entity = commands.spawn(definition).id();
+        let entity = match reuse.and_then(|catalog| catalog.get(id)).copied() {
+            Some(existing) => {
+                commands.entity(existing).insert(definition);
+                existing
+            }
+            None => commands.spawn(definition).id(),
+        };
         catalog.insert(id, entity);
     }
     Ok(catalog)
 }
 
-/// 解析状态定义。
+/// 解析状态定义（`reuse` 的语义同 [`load_skills`]）。
 fn load_statuses(
     commands: &mut Commands,
     vocab: &Vocab,
     ron: &[StatusRon],
+    reuse: Option<&StatusCatalog>,
 ) -> Result<StatusCatalog, LoaderError> {
     let mut catalog = StatusCatalog::default();
     for status in ron {
         let id = vocab.status(&status.id)?;
         let definition = resolve_status(status, id, vocab)?;
-        let entity = commands.spawn(definition).id();
+        let entity = match reuse.and_then(|catalog| catalog.get(id)).copied() {
+            Some(existing) => {
+                commands.entity(existing).insert(definition);
+                existing
+            }
+            None => commands.spawn(definition).id(),
+        };
         catalog.insert(id, entity);
     }
     Ok(catalog)
@@ -197,33 +301,41 @@ fn collect_used_resources(
 /// 池的显示名，按**词汇 ID** 索引（日志 / UI 用）。
 ///
 /// 为什么按 ID 而不是按名字：运行时只有 ID（`Pool` 存在 `HashMap<ResourceId, _>` 里），
-/// 名字在加载期就该被用完。按名字索引的表在运行时要先"把 ID 翻回名字"才能查——多一次
-/// 字符串查表，而且容易写错（`Vocab::resource_name` 给的是 RON 里的 `id`，**不是** `name`）。
+/// 名字在加载期就该被用完。
 ///
-/// 顺序沿用 `vocabulary.ron`（`Vocab` 的编号就是文件顺序），所以这里的下标直接当 ID 用。
-pub fn resource_labels(ron: &VocabRon) -> HashMap<ResourceId, String> {
+/// 为什么**现查 `vocab`** 而不是拿下标当 ID：热重载会往词汇表里追加名字，
+/// ID 不再等于"文件里的第几行"。按下标算的话，重载之后显示名会整体错位——
+/// 而且不报错。
+pub fn resource_labels(vocab: &Vocab, ron: &VocabRon) -> HashMap<ResourceId, String> {
     ron.resources
         .iter()
-        .enumerate()
-        .map(|(index, resource)| (ResourceId(index as u16), resource.name.clone()))
+        .filter_map(|resource| {
+            vocab
+                .resource(&resource.id)
+                .ok()
+                .map(|id| (id, resource.name.clone()))
+        })
         .collect()
 }
 
 /// 属性的显示名，按词汇 ID 索引。
-pub fn stat_labels(ron: &VocabRon) -> HashMap<StatId, String> {
+pub fn stat_labels(vocab: &Vocab, ron: &VocabRon) -> HashMap<StatId, String> {
     ron.stats
         .iter()
-        .enumerate()
-        .map(|(index, stat)| (StatId(index as u16), stat.name.clone()))
+        .filter_map(|stat| vocab.stat(&stat.id).ok().map(|id| (id, stat.name.clone())))
         .collect()
 }
 
 /// 状态的显示名，按词汇 ID 索引。
-pub fn status_labels(ron: &VocabRon) -> HashMap<StatusId, String> {
+pub fn status_labels(vocab: &Vocab, ron: &VocabRon) -> HashMap<StatusId, String> {
     ron.statuses
         .iter()
-        .enumerate()
-        .map(|(index, status)| (StatusId(index as u16), status.name.clone()))
+        .filter_map(|status| {
+            vocab
+                .status(&status.id)
+                .ok()
+                .map(|id| (id, status.name.clone()))
+        })
         .collect()
 }
 // ------------------------------------------------------------------ 测试

@@ -9,6 +9,7 @@
 //!
 //! 这些用 `MinimalPlugins` + 内容层跑：UI **节点**是普通组件，不需要渲染后端。
 
+use bevy::app::TaskPoolPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimePlugin;
@@ -24,22 +25,34 @@ use voxelith_prime::presentation::{
     HudStatusPanel, PresentationPlugin,
 };
 
+/// 资产根：工作区根的 `assets/`（与 `main.rs` 用的是同一处）。
+const ASSETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
+
 /// 无头 App：内容 + 机制 + 表现（**不含渲染**）。
 ///
-/// `RawContent` 在真程序里由 `main` 解析后 `insert_resource`；测试补上同一步。
+/// 内容走真实装载路径（`ContentManifest` + `AssetServer`），所以要装 `AssetPlugin`；
+/// 它只依赖 `TaskPoolPlugin`，**不需要渲染后端**。`ImagePlugin` 同理：
+/// 它只注册 `Assets<Image>` 与 PNG 加载器（`load_ui_atlas` 要 `load::<Image>`），
+/// 上传显存那步在 `bevy_render` 里，这里用不到。
 fn app() -> App {
     let mut app = App::new();
     app.add_plugins((
+        TaskPoolPlugin::default(),
+        bevy::asset::AssetPlugin {
+            file_path: ASSETS.to_string(),
+            ..default()
+        },
+        bevy::scene::ScenePlugin,
+        bevy::image::ImagePlugin::default(),
         TimePlugin,
         StatesPlugin,
         CombatPlugin,
         ContentPlugin,
         PresentationPlugin,
     ));
-    app.insert_resource(voxelith_prime::content::parse_raw().expect("`.ron` 内容该配好"));
     // **补上 UI 图集**：真程序里 `load_ui_atlas` 会插入 `UiAtlas`
-    // （句柄指向 `assets/ui/kenney-adventure.png`）。测试里没有资源设施
-    // （`AssetPlugin` 要整个渲染后端），所以给一份**空句柄**的图集。
+    // （句柄指向 `assets/ui/kenney-adventure.png`）。这里给一份**空句柄**的图集，
+    // 免得测试去依赖像素。
     //
     // 这够用：这些测试断言的是 **HUD 的结构与文字**，不是像素。
     // 图块坐标由 `ui_theme::atlas` 的单测**对着素材自带的 XML**逐条核对。
@@ -217,6 +230,64 @@ fn skill_panel_lists_exactly_the_available_skills() {
             .iter()
             .any(|text| text == "普通攻击" || text == "basic_attack"),
         "按钮上该有技能名：{texts:?}"
+    );
+}
+
+/// **技能定义被改写（热重载）→ 按钮文字要跟着变。**
+///
+/// 只比"可用技能集合"的话，改 `skills.ron` 里的 `name` 之后按钮会一直显示旧名字——
+/// 而内容确实已经换过了，这是**静默不一致**。`file_watcher` 在真机上做的就是
+/// "替换 `Assets<A>` 里的值 + 发 `AssetEvent::Modified`"，这里手工做同样两件事。
+#[test]
+fn relabelling_a_skill_refreshes_its_button() {
+    use voxelith_prime::content::{ContentManifest, SkillsAsset};
+
+    let mut app = app();
+    // 建面板（`Startup`）→ 建按钮（`Update`）→ 按钮文字落地，要两帧。
+    app.update();
+    app.update();
+
+    let panel = {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<Entity, With<HudSkillsPanel>>();
+        query.iter(app.world()).next().expect("有技能面板")
+    };
+    let before = texts_under(&mut app, panel);
+    assert!(
+        before.iter().any(|text| text == "普通攻击"),
+        "基线：按钮上是内容里的原名：{before:?}"
+    );
+
+    let handle = {
+        let mut query = app.world_mut().query::<&ContentManifest>();
+        query
+            .iter(app.world())
+            .next()
+            .expect("清单实体在")
+            .skills
+            .clone()
+    };
+    {
+        let mut assets = app.world_mut().resource_mut::<Assets<SkillsAsset>>();
+        let mut skills = assets.get_mut(&handle).expect("技能配置已装载");
+        skills.0[0].name = "改过的名字".to_owned();
+    }
+    app.world_mut()
+        .write_message(bevy::asset::AssetEvent::<SkillsAsset>::Modified { id: handle.id() });
+    // 重新翻译走 `Commands`，帧末才落地；`Changed<Skill>` 因此**下一帧**才为真，
+    // 按钮在那一帧重建。走两帧 —— 这也正是线上的真实时序。
+    app.update();
+    app.update();
+
+    let after = texts_under(&mut app, panel);
+    assert!(
+        after.iter().any(|text| text == "改过的名字"),
+        "改过 `skills.ron` 之后界面要跟着变，不能一直显示旧名字：{after:?}"
+    );
+    assert!(
+        !after.iter().any(|text| text == "普通攻击"),
+        "旧名字该被换掉：{after:?}"
     );
 }
 

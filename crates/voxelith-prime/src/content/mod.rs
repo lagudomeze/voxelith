@@ -1,29 +1,45 @@
-//! L2 内容层：**读文件 + 反序列化 + 注入**。
+//! L2 内容层：**静态配置的装载 + 翻译 + 注入**。
 //!
 //! 分工（**R101 精神**）：
 //!
 //! | 谁 | 干什么 |
 //! |---|---|
-//! | 本模块（L2） | `include_str!` 读 `.ron`、`ron::from_str` 反序列化、把产物 `insert_resource` |
-//! | `axiom::behaviors::content`（L1） | 描述结构（`SkillRon` 等）与 **字符串 → 词汇 ID** 的解析 |
+//! | [`asset`] | 六份 `.ron` 的**资产类型与加载器**（字节 → 描述结构） |
+//! | [`manifest`] | [`ContentManifest`]（`SceneComponent`）：**路径的唯一出处** + 启动期等装载 |
+//! | [`loader`] | 描述结构 → 运行时定义（字符串 → 词汇 ID）+ 注入 `Resource` |
+//! | [`reload`] | 配置改了就地重新翻译（热重载） |
+//! | `axiom::behaviors::content`（L1） | 描述结构与解析规则，**不认文件、不认 `AssetServer`** |
 //!
-//! 这样 `axiom` 仍然在"无文件系统"的环境里可测：它只认描述结构，不认文件。
+//! 这样 `axiom` 仍然在"无文件系统"的环境里可测：它只认描述结构。
 
+mod asset;
 mod loader;
+mod manifest;
+mod reload;
 mod spawn;
 
+pub use asset::{
+    ContentAsset, ContentAssetKind, MonstersAsset, PlayersAsset, RonAssetError, SkillsAsset,
+    StatusesAsset, VocabularyAsset, WorldAsset, register_content_assets,
+};
 pub use loader::{
-    ContentData, ContentError, Labels, RawContent, load_content, make_pools, make_stats, parse_raw,
+    ContentData, ContentError, Labels, RawContent, load_content, load_content_reusing, make_pools,
+    make_stats,
+};
+pub use manifest::{
+    ContentChanges, ContentManifest, LoadedContentAssets, load_content_manifest, raw_from_world,
 };
 pub use spawn::spawn_demo;
 
-use bevy::prelude::*;
-use voxelith_axiom::behaviors::content::LoadedContent;
+#[cfg(test)]
+pub use loader::parse_raw;
 
-/// 内容装配：把原始描述翻译成运行时定义、注入 Resource，并生成角色。
+use bevy::prelude::*;
+
+/// 内容装配：装载六份静态配置、翻译成运行时定义、注入 Resource，并生成角色。
 ///
-/// **原始描述（[`RawContent`]）在 `main` 里就解析好了**：翻译后的产物要经 `Commands`
-/// 注入（延迟到帧末），而图集 / 地形这些 `Startup` 系统需要立刻读到方块定义。
+/// **装载在 `PreStartup`，翻译在 `Startup`**：前者把"内容一定在"这条不变式守住，
+/// 于是后面那些读 `ContentData` 的 `Startup` 系统一行都不用改。
 pub struct ContentPlugin;
 
 /// 内容启动的两个阶段（**顺序契约**）。
@@ -40,14 +56,21 @@ pub enum ContentSet {
 
 impl Plugin for ContentPlugin {
     fn build(&self, app: &mut App) {
-        // 两个阶段**必须串行**：`Spawn` 读 `Translate` 注入的 `ContentData`，
-        // 而 `Commands` 要到系统之间才落地。体素表现再把图集 / 地形排在 `Translate` 之后。
-        app.configure_sets(Startup, (ContentSet::Translate, ContentSet::Spawn).chain())
+        // 六份配置的资产类型与加载器必须先注册：`AssetServer::load` 只认注册过的类型。
+        register_content_assets(app);
+
+        // **`PreStartup` 装载并等到就绪**（阻塞；见 `manifest` 的模块文档）。
+        app.add_systems(PreStartup, load_content_manifest)
+            // 两个阶段**必须串行**：`Spawn` 读 `Translate` 注入的 `ContentData`，
+            // 而 `Commands` 要到系统之间才落地。体素表现再把图集 / 地形排在 `Translate` 之后。
+            .configure_sets(Startup, (ContentSet::Translate, ContentSet::Spawn).chain())
             .add_systems(
                 Startup,
                 setup_content_resources.in_set(ContentSet::Translate),
             )
-            .add_systems(Startup, spawn_content_actors.in_set(ContentSet::Spawn));
+            .add_systems(Startup, spawn_content_actors.in_set(ContentSet::Spawn))
+            // 改 `.ron` → `AssetEvent::Modified` → 原地重新翻译（开发期特性，见 `reload`）。
+            .add_systems(Update, reload::reload_content);
     }
 }
 
@@ -56,19 +79,7 @@ impl Plugin for ContentPlugin {
 /// 在 [`ContentSet::Translate`] 里跑；体素表现的图集 / 地形排在它之后，
 /// 因为它们要读翻译后的方块表与地形参数。
 pub fn setup_content_resources(mut commands: Commands, raw: Res<RawContent>) {
-    let content: LoadedContent =
-        load_content(&mut commands, &raw).unwrap_or_else(|error| panic!("内容翻译失败：{error}"));
-
-    // 目录先落 Resource，生成实体时才查得到技能 / 状态的**定义实体**。
-    commands.insert_resource(content.vocab.clone());
-    commands.insert_resource(content.skills.clone());
-    commands.insert_resource(content.statuses.clone());
-    commands.insert_resource(ContentData {
-        pools: content.pools.clone(),
-        players: content.players.clone(),
-        monsters: content.monsters.clone(),
-        world: content.world.clone(),
-    });
+    load_content(&mut commands, &raw).unwrap_or_else(|error| panic!("内容翻译失败：{error}"));
 }
 
 /// 生成 PC 与怪物（读已经注入的 `ContentData`）。

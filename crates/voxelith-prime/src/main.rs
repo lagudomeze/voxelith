@@ -17,11 +17,6 @@ use bevy::{log::LogPlugin, prelude::*};
 use voxelith_prime::VoxelithPlugin;
 
 fn main() {
-    // **在 `App` 之前把 `.ron` 解析成 Resource**：翻译后的产物要经 `Commands` 注入，
-    // 那是延迟的（要到帧末才落地）；而图集 / 地形这些 `Startup` 系统需要立刻读到方块定义。
-    let raw = voxelith_prime::content::parse_raw()
-        .unwrap_or_else(|error| panic!("内容解析失败：{error}"));
-
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -45,10 +40,14 @@ fn main() {
                 // 现在只有开发路径，所以先只处理开发。
                 .set(bevy::asset::AssetPlugin {
                     file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets").to_string(),
+                    // 配置热重载只在开发构建里开：它会给运行时挂一个文件监视器，
+                    // 出货版本不需要（`bevy/file_watcher` 特性始终编进去，这里只决定开不开）。
+                    watch_for_changes_override: Some(cfg!(debug_assertions)),
                     ..default()
                 }),
         )
-        .insert_resource(raw)
+        // **六份静态配置不再在 `main` 里解析**：`ContentPlugin` 用 `ContentManifest`
+        // （`SceneComponent`）在 `PreStartup` 里装载，路径全写在清单的 `scene()` 里。
         .add_plugins(VoxelithPlugin::new())
         .run();
 }

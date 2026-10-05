@@ -376,7 +376,19 @@ Bevy 在**帧首**就把 `delta` 定死了，而相位要到 `PreUpdate` 才落�
 
 ## 8. 配置格式（RON）
 
-**五份**文件都在 `assets/data/`（工作区根），由 L2 用 `include_str!` 编入后解析、注入 Resource。
+**六份**文件都在 `assets/data/`（工作区根）。它们是**真正的 `Asset`**：
+
+```text
+ContentManifest（SceneComponent，路径全写在 ContentManifest::scene() 里）
+  vocabulary.ron ─► VocabularyAsset ─┐
+  skills.ron     ─► SkillsAsset      │
+  statuses.ron   ─► StatusesAsset    │  PreStartup：阻塞等到六份全部就绪
+  players.ron    ─► PlayersAsset     │  （失败 / 超时立刻 panic，带文件名）
+  monsters.ron   ─► MonstersAsset    │
+  world.ron      ─► WorldAsset      ─┘
+                                    ↓ 拼成 RawContent，insert_resource
+                               Startup 照旧（图集 / 地形 / HUD 一行没改）
+```
 
 | 文件 | 内容 | 解析结果 |
 |---|---|---|
@@ -385,13 +397,46 @@ Bevy 在**帧首**就把 `delta` 定死了，而相位要到 `PreUpdate` 才落�
 | `statuses.ron` | 状态定义 | `StatusCatalog`（StatusId → `StatusDef` 实体） |
 | `players.ron` | **玩家**的池 / 属性 / 阵营 / 特性 | `ActorTemplate`（L2 → `spawn_actor`） |
 | `monsters.ron` | **怪物**的同名字段 + AI 权重 + 能量 | 同上 |
+| `world.ron` | 体素地形参数 + 方块表 | `WorldTemplate`（图集 / 地形读） |
 
 `players.ron` 与 `monsters.ron` 用**同一个** `ActorRon` 结构，靠必填的 `role: Player | Monster`
 分成两组：玩家与怪物都是"池 + 属性 + 阵营 + 特性"，没必要为 PC 单开一份结构。
 **`role` 漏写会直接解析失败**（不给默认值）——曾经默认成 `Player`，
 于是一个只写了 AI 候选的怪物被静默当成 PC 生成，"打不到怪"却不报错。
 
-加载管线（`axiom::behaviors::content::loader`）：
+**路径只有一处**：`ContentManifest::scene()`。`bsn!` 把 `"data/skills.ron"` 自动转成
+`HandleTemplate::Path`（装载时落到 `AssetServer::load`），所以调用方只写
+`world.spawn_scene(bsn! { @ContentManifest })`，不需要知道任何一个文件名——
+加一份配置只改那一个函数。
+
+### 8.1 为什么在 `PreStartup` **阻塞**等装载
+
+`Startup` 里一串系统（图集 / 材质 / 地形 / 精灵表 / HUD）都假设"内容已经在"，
+而它们的参数是 `Option<Res<ContentData>>`——**读不到就静默建一张空图集**，战场空掉
+却不报错。与其把那一串系统全改成异步状态机，不如守住
+"`Startup` 一定发生在内容就绪之后"这条不变式：`PreStartup` 里泵
+`handle_internal_asset_events` 直到六份都 `LoadState::Loaded`。
+
+阻塞是安全的：装载跑在 `IoTaskPool`（独立线程）上，两边不会互相等。六份本地小文件
+在毫秒级完成；有 10 秒超时兜底，`LoadState::Failed` 会立刻带着文件名 panic。
+
+### 8.2 热重载（改 `.ron` 不用重编）
+
+`bevy/file_watcher` 重新装载 → `AssetEvent::Modified` → 重新翻译。两条不变式：
+
+1. **同 ID 的定义实体原地更新，不换实体**。`Action` 用 `CastsSkill(Entity)` 指着技能定义
+   实体，`ActiveStatus` 用 `def` 指着状态定义实体——换实体就是悬空引用，而悬空引用
+   **不报错**，只是那一招 / 那个状态从此画不出来。
+2. **词汇表拿旧的当底再登记**。词汇 ID 是按登记顺序发的，不垫底的话"在 `skills.ron`
+   中间插一条"会让它后面所有技能的 ID 整体后移一位——等于把 A 的定义悄悄换成 B 的。
+
+改错了（语法错 / 引用了没登记的池）**不 panic**：打一条 error 保留旧目录。启动期才该当场炸，
+运行期炸掉用户正在玩的局毫无意义。
+
+**不做的事**：不重新生成角色、不重建地形。那两件事是场景编排不是内容——重跑会把 PC 和
+怪物再 spawn 一份、把地形网格再叠一层。想从头来一遍，重启。
+
+加载管线（`axiom::behaviors::content::loader`，**不读文件、不认 `AssetServer`**）：
 
 ```text
 vocabulary.ron ─► Vocab（Resource：name ⇄ id 双向）
@@ -400,6 +445,9 @@ skills.ron     ─► 解析字符串 → Skill       ─► spawn 实体 ─►
 players.ron ┐
 monsters.ron┘  ─► 解析字符串 → ActorTemplate ─► 按 `role` 分到 players / monsters 两组
 ```
+
+热重载走的是**同一个** `load_all_reusing`，多带一份 `ReusedDefs`（旧词汇表 + 旧目录）。
+`build_vocab_into` 往旧表里追加：已登记的名字保留原 ID，新名字接在后面。
 
 **加载期检查**（都不允许静默跑）：
 
@@ -424,10 +472,10 @@ crates/voxelith-axiom/src/
   behaviors/content/descriptor.rs  RON 描述结构（VocabRon / SkillRon / StatusRon / ActorRon / RoleRon）
   behaviors/content/catalog.rs     SkillCatalog / StatusCatalog（Resource）
   behaviors/content/loader/        加载管线（**不读文件**）
-    mod.rs                          流程：load_all / build_vocab / 池覆盖检查
+    mod.rs                          流程：load_all / load_all_reusing / build_vocab_into / 池覆盖检查
     resolve.rs                      值 / 效果 / 需求 / 对抗的字符串 → ID
     resolve_defs.rs                 技能 / 状态 / 角色模板
-    types.rs                        LoaderError / PoolTemplate / ActorTemplate / LoadedContent
+    types.rs                        LoaderError / PoolTemplate / ActorTemplate / LoadedContent / ReusedDefs
   behaviors/value.rs          Value / Who / Provider / eval / EvalContext
   behaviors/contest.rs        Formula / Outcome / Contest / resolve_contest / CombatRng
   behaviors/effect/           Effect / execute_effect / EffectContext + apply.rs / blob.rs / params.rs

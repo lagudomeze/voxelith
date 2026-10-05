@@ -16,7 +16,10 @@ inspector = ["dep:bevy-inspector-egui"]
 # - `debug`：组件/类型名可用；缺了它组件名会打印成 FEATURE_DISABLED，检查器看起来是空的。
 # - `png`：`AssetServer` 加载 `.png`（UI 图集、精灵表、**GLB 的外链贴图**）。
 # - `bevy_gltf`：加载 `.glb` 模型（Kenney 的 3D 套件都是这个格式）。
-bevy = { workspace = true, features = ["bevy_remote", "debug", "png", "bevy_gltf"] }
+# - `file_watcher`：**配置热重载**（改 `assets/data/*.ron` 立刻生效）。
+#   编进来并不意味着一直开着：`main.rs` 用 `watch_for_changes_override` 只在
+#   debug 构建里打开监视（出货版本不该挂文件监视器）。
+bevy = { workspace = true, features = ["bevy_remote", "debug", "png", "bevy_gltf", "file_watcher"] }
 bevy_brp_extras = { workspace = true }
 bevy-inspector-egui = { workspace = true, optional = true }
 # 内容加载：读 `.ron` 文件并解析。**只允许出现在 L2**（R101 精神）——

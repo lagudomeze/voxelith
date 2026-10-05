@@ -345,6 +345,7 @@ fn sync_skill_buttons(
     available: Res<AvailableSkills>,
     catalog: Res<SkillCatalog>,
     skills: Query<&Skill>,
+    relabelled_skills: Query<(), Changed<Skill>>,
     existing: Query<(Entity, &HudSkillButton)>,
     panels: Query<Entity, With<HudSkillsPanel>>,
 ) {
@@ -363,7 +364,10 @@ fn sync_skill_buttons(
     let mut current: Vec<Entity> = existing.iter().map(|(_, button)| button.skill).collect();
     current.sort_unstable_by_key(|entity| entity.index());
     current.dedup();
-    if current == wanted {
+    // **标签变了也要重建**：`AvailableSkills` 的集合没变、但技能定义被改写（热重载
+    // 原地更新 `Skill`）时，只比集合的话按钮会一直显示旧名字——而那一招确实已经换了。
+    let relabelled = !relabelled_skills.is_empty();
+    if current == wanted && !relabelled {
         return;
     }
 

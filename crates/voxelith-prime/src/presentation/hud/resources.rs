@@ -48,7 +48,11 @@ pub fn sync_resource_rows(
 
     let mut current: Vec<ResourceId> = existing.iter().map(|(_, row)| row.pool).collect();
     current.sort_unstable_by_key(|id| id.0);
-    if current == structure {
+    // **显示名变了也要重建**：池结构没变、但 `vocabulary.ron` 里改过名字（热重载）
+    // 时，只比结构的话界面会一直显示旧名字——而内容确实已经换了。
+    // `Labels` 每次重新翻译都会被重插，所以 `is_changed()` 正好是"内容换过了"。
+    let renamed = labels.as_ref().is_some_and(|labels| labels.is_changed());
+    if current == structure && !renamed {
         return;
     }
 

@@ -78,6 +78,94 @@ monster_act            决策槽有货 + 威胁窗口空 → 生成威胁行动 
 
 ---
 
+# ✅ 静态配置改成 `Asset`：用 `SceneComponent` 装载六份 `.ron`
+
+## 改了什么
+
+`include_str!` 把六份 RON 编进二进制 → 现在是**真正的 `Asset`**，走 `AssetServer`：
+
+```text
+ContentManifest（SceneComponent，路径全写在 scene() 里）
+  vocabulary / skills / statuses / players / monsters / world.ron
+    → PreStartup：world.spawn_scene(bsn! { @ContentManifest })
+    → 阻塞泵 handle_internal_asset_events 直到六份 LoadState::Loaded
+    → 拼成 RawContent，insert_resource
+    → Startup 照旧（图集 / 地形 / 精灵表 / HUD **一行没改**）
+```
+
+**路径只有一处**：`ContentManifest::scene()` 里的六个字符串。`bsn!` 把 `"data/skills.ron"`
+转成 `HandleTemplate::Path`（装载时调 `AssetServer::load`），调用方只写 `@ContentManifest`。
+
+## 为什么在 `PreStartup` **阻塞**（而不是改成异步状态机）
+
+`Startup` 里一串系统（图集 / 材质 / 地形 / 精灵表 / HUD）都假设"内容已经在"，
+而 `atlas::build_atlas` / `terrain::build_initial_terrain` 的参数是
+`Option<Res<ContentData>>` —— **读不到就静默建一张空图集**，战场空掉却不报错。
+这正是本项目反复踩的那类"沉默失败"。
+
+所以守住的不是"加载快"，而是不变式：**`Startup` 一定发生在内容就绪之后**。
+阻塞安全：装载跑在 `IoTaskPool`（独立线程），主线程泵事件就能收到，两边不会互相等。
+10 秒超时 + `LoadState::Failed` 立刻 panic（**带文件名**）兜底。
+
+## 热重载（换成 Asset 的唯一理由）
+
+`bevy/file_watcher` 只在 debug 构建开（`watch_for_changes_override`）。
+改 `.ron` → `AssetEvent::Modified` → 原地重新翻译。两条不变式：
+
+1. **同 ID 的定义实体原地更新，不换实体**。
+   `Action` 用 `CastsSkill(Entity)` 指着技能定义实体，`ActiveStatus` 用 `def` 指着状态定义
+   实体。换实体 = 悬空引用，而**悬空引用不报错**，只是那一招从此画不出来。
+2. **词汇表拿旧的当底再登记**（`build_vocab_into`）。
+   词汇 ID 按登记顺序发（`NameTable::register` 用当前长度当下标）。不垫底的话，
+   在 `skills.ron` 中间插一条会让它后面**所有**技能的 ID 整体后移一位——
+   等于把 A 的定义悄悄换成 B 的。**这条是第一版测试红出来的**（我原本以为只要复用
+   定义实体就够了）。
+
+改错了（语法错 / 引用了没登记的池）**不 panic**：打一条 error 保留旧目录。
+启动期才该当场炸；运行期炸掉用户正在玩的局毫无意义。
+
+**不做的**：不重新生成角色、不重建地形。那是场景编排不是内容——重跑会把 PC 和怪物
+再 spawn 一份、地形网格再叠一层。
+
+## 顺手补的一个"静默不一致"
+
+HUD 的技能按钮只在**可用技能集合**变化时重建。于是热重载改了 `skills.ron` 的 `name`
+之后按钮一直显示旧名字，**而内容确实已经换了**。真机验证时截图哈希一模一样才发现的。
+修法：`sync_skill_buttons` 的早退多加一个条件（`Changed<Skill>`），
+`sync_resource_rows` 同理（`Labels::is_changed()`）。
+
+## 真机验证（不是"测试绿了"就算）
+
+| 步骤 | 证据 |
+|---|---|
+| 启动 | 截图：HUD 显示"冒险者 / 生命 100/100 / 技能栏 5 项"，全部来自 `.ron` |
+| 内容→生成 | BRP `world.query`：`Monster` 实体 2 个 |
+| 热重载 | 改 `skills.ron` 的 `name` → 日志 `Reloaded data\skills.ron` + `配置已热重载：9 个技能 / 6 个状态的定义实体原地更新` |
+| 可见 | 截图哈希 `52E53BE0…` → `443D6D3B…`，按钮文字变成"普通攻击（热重载证明）" |
+
+**截图哈希相同**那次是最有价值的一次：日志说重载成功了，画面却一模一样——
+于是挖出了上面那个 HUD 缓存问题。只看日志会以为"做完了"。
+
+## 变异验证
+
+| 变异 | 抓到它的测试 |
+|---|---|
+| 不拿旧词汇表垫底 | `inserting_a_skill_keeps_the_other_ids_stable` |
+| 每次都 spawn 新定义实体 | `editing_a_config_reloads_it_in_place` |
+| 不销毁没人引用的旧定义实体 | `removing_a_skill_from_the_config_retires_its_definition` |
+| 按钮不理会标签变化 | `relabelling_a_skill_refreshes_its_button` |
+
+## 代价 / 新增依赖
+
+- `bevy/file_watcher`（拉进 `notify`）。**编进来 ≠ 一直开着**：只在 debug 构建
+  `watch_for_changes_override: Some(cfg!(debug_assertions))`。
+- `src/` 里的单元测试（图集 / 地形 / 网格）仍然用同步的 `parse_raw()`——它现在
+  只在 `cfg(test)` 里存在，**出货的二进制里没有 `include_str!`**。
+  集成测试（`content_pipeline` / `hud`）走**真实装载路径**，不再有"测试跑的是一条
+  游戏永远不走的路"这种隐患。
+
+---
+
 # ✅ 修复：展示台与地板**不在同一层** → 两套东西永远看不到一起
 
 ## 现象（用户发现的）

@@ -1,8 +1,13 @@
-//! L2 内容管线测试：五份 `.ron` **真的能加载**，并生成可战斗的实体。
+//! L2 内容管线测试：六份 `.ron` **真的能装载**，并生成可战斗的实体。
 //!
 //! 这些断言的价值在于：内容配错（引用了没登记的池 / 属性 / 状态）在**启动期**就会炸，
 //! 而不是等到某次战斗里静默失效。用无头 App 跑，不需要窗口。
+//!
+//! **走的是真实装载路径**：`ContentPlugin` 在 `PreStartup` 里经 `ContentManifest`
+//! （`SceneComponent`）从 `assets/data/*.ron` 装载，再翻译注入。所以这里要装
+//! `AssetPlugin` —— 它顺带提供 IO 线程池，`AssetServer` 的装载就在那上面跑。
 
+use bevy::app::TaskPoolPlugin;
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimePlugin;
@@ -10,26 +15,72 @@ use voxelith_axiom::atoms::actor::{
     ActorState, ActorTag, ActorTags, Faction, Monster, Player, Resources, Stats,
 };
 use voxelith_axiom::behaviors::combat::CombatPlugin;
-use voxelith_axiom::behaviors::content::{SkillCatalog, StatusCatalog, Vocab};
+use voxelith_axiom::behaviors::content::{SkillCatalog, SkillId, StatusCatalog, Vocab};
 use voxelith_axiom::behaviors::phase::{AvailableSkills, CombatPhase};
-use voxelith_prime::content::ContentPlugin;
+use voxelith_axiom::behaviors::skill::Skill;
+use voxelith_prime::content::{ContentAssetKind, ContentManifest, ContentPlugin};
+
+/// 资产根：工作区根的 `assets/`（与 `main.rs` 用的是同一处）。
+const ASSETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
 
 /// 组装一个无头 App：内容层 + 机制层（不含渲染 / 窗口）。
-///
-/// `RawContent` 在真程序里由 `main` 解析好再 `insert_resource`；测试里补上同一步，
-/// 否则 `setup_content_resources` 会因为没有输入而 panic。
 fn headless_app() -> App {
     let mut app = App::new();
     // CombatPlugin 内部已经装配了 ActionPlugin 等子域。
-    app.add_plugins((TimePlugin, StatesPlugin, CombatPlugin, ContentPlugin));
-    app.insert_resource(voxelith_prime::content::parse_raw().expect("`.ron` 内容该配好"));
+    // `AssetPlugin` 要在 `ContentPlugin` 之前：后者要 `init_asset` 六份配置类型。
+    app.add_plugins((
+        TaskPoolPlugin::default(),
+        bevy::asset::AssetPlugin {
+            file_path: ASSETS.to_string(),
+            ..default()
+        },
+        bevy::scene::ScenePlugin,
+        TimePlugin,
+        StatesPlugin,
+        CombatPlugin,
+        ContentPlugin,
+    ));
     app
+}
+
+/// 六份配置的路径**只有一处真出处**：`ContentManifest::scene()` 里的字符串。
+///
+/// `ContentAssetKind::file()` 是同一批文件名的第二处写法（报错信息要用字面量），
+/// 这条测试拿**真实句柄**把两者钉在一起——抄错了会红，不会静默错位。
+#[test]
+fn the_manifest_points_at_the_six_config_files() {
+    let mut app = headless_app();
+    app.update();
+
+    let (kind_paths, handle_paths) = {
+        let mut query = app.world_mut().query::<&ContentManifest>();
+        let manifest = query.iter(app.world()).next().expect("清单实体在");
+        let server = app.world().resource::<bevy::asset::AssetServer>();
+        (
+            [
+                ContentAssetKind::Vocabulary.file(),
+                ContentAssetKind::Skills.file(),
+                ContentAssetKind::Statuses.file(),
+                ContentAssetKind::Players.file(),
+                ContentAssetKind::Monsters.file(),
+                ContentAssetKind::World.file(),
+            ],
+            manifest.paths(server),
+        )
+    };
+
+    for (expected, actual) in kind_paths.iter().zip(&handle_paths) {
+        assert!(
+            actual.ends_with(expected),
+            "清单装载的路径与标签对不上：标签 {expected}，实际 {actual}"
+        );
+    }
 }
 
 #[test]
 fn content_files_load_and_install_the_vocabulary() {
     let mut app = headless_app();
-    // Startup 系统在第一次 update 时跑：它会加载五份 RON 并注入 Resource。
+    // `PreStartup` 会**阻塞**等到六份配置就绪，所以这一次 update 之后内容已经在世界上了。
     app.update();
 
     let vocab = app.world().get_resource::<Vocab>().expect("词汇表已注入");
@@ -268,4 +319,184 @@ fn content_exercises_every_engine_branch() {
     // Ratio 目前**故意没有**内容用例：现有数值里 attacker/defender 的比值
     // 没有哪一对是设计上有意义的（写了也是凑数）。所以这里**不断言**它 ——
     // 但留这条注释说明"为什么它缺"，免得下次有人以为是漏了。
+}
+
+// ------------------------------------------------------------------ 热重载
+//
+// `file_watcher` 在真机上做的事就是：把新文件解析成资产、**替换 `Assets<A>` 里的值**、
+// 发一条 `AssetEvent::Modified`。下面这些测试手工做同样两件事——于是不需要真的动磁盘，
+// 却走的是同一条链路。
+
+/// 取清单里那份技能的句柄。
+fn skills_handle(app: &mut App) -> Handle<voxelith_prime::content::SkillsAsset> {
+    let mut query = app.world_mut().query::<&ContentManifest>();
+    query
+        .iter(app.world())
+        .next()
+        .expect("清单实体在")
+        .skills
+        .clone()
+}
+
+/// 改一份配置并宣告"它变了"。
+fn edit_skills(
+    app: &mut App,
+    edit: impl FnOnce(&mut Vec<voxelith_axiom::behaviors::content::SkillRon>),
+) {
+    let handle = skills_handle(app);
+    {
+        let mut assets = app
+            .world_mut()
+            .resource_mut::<Assets<voxelith_prime::content::SkillsAsset>>();
+        let mut asset = assets.get_mut(&handle).expect("技能配置已装载");
+        edit(&mut asset.0);
+    }
+    app.world_mut().write_message(
+        bevy::asset::AssetEvent::<voxelith_prime::content::SkillsAsset>::Modified {
+            id: handle.id(),
+        },
+    );
+}
+
+#[test]
+fn editing_a_config_reloads_it_in_place() {
+    let mut app = headless_app();
+    app.update();
+
+    let first = SkillId(0);
+    let before = *app
+        .world()
+        .resource::<SkillCatalog>()
+        .get(first)
+        .expect("第一个技能有定义实体");
+    let duration_before = app.world().get::<Skill>(before).unwrap().duration;
+
+    edit_skills(&mut app, |skills| skills[0].duration = 7.5);
+    app.update();
+
+    let after = *app
+        .world()
+        .resource::<SkillCatalog>()
+        .get(first)
+        .expect("重载后仍在目录里");
+
+    // **实体必须是同一个**：`Action` 用 `CastsSkill(Entity)` 指着它，
+    // 状态实例用 `ActiveStatus.def` 指着它。换实体 = 悬空引用，而且不报错。
+    assert_eq!(
+        after, before,
+        "热重载必须复用定义实体（同 ID 写在原实体上）"
+    );
+    assert_eq!(
+        app.world().get::<Skill>(after).unwrap().duration,
+        7.5,
+        "新数值要真的生效"
+    );
+    assert_ne!(duration_before, 7.5, "原值不是 7.5（否则这条测不出东西）");
+}
+
+#[test]
+fn removing_a_skill_from_the_config_retires_its_definition() {
+    let mut app = headless_app();
+    app.update();
+
+    let before = app.world().resource::<SkillCatalog>().len();
+    assert!(before > 1, "内容里不止一个技能（否则没得删）");
+    let dropped = *app
+        .world()
+        .resource::<SkillCatalog>()
+        .get(SkillId(0))
+        .unwrap();
+
+    edit_skills(&mut app, |skills| {
+        skills.remove(0);
+    });
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<SkillCatalog>().len(),
+        before - 1,
+        "目录跟着内容变"
+    );
+    assert!(
+        app.world().get::<Skill>(dropped).is_none(),
+        "没人引用的旧定义实体要销毁，不能留在世界里"
+    );
+}
+
+/// **在配置中间插一条，不该把后面的 ID 整体顶掉一位。**
+///
+/// 词汇 ID 是按登记顺序发的（`NameTable::register` 拿当前长度当下标）。重新翻译时
+/// 若不拿旧词汇表垫底，插入点之后的**所有**技能都会换一个 ID —— 那等于把 A 的定义
+/// 悄悄换成 B 的，而且什么都不报。`ReusedDefs::vocab` 就是为这条而存在的。
+#[test]
+fn inserting_a_skill_keeps_the_other_ids_stable() {
+    let mut app = headless_app();
+    app.update();
+
+    let before: Vec<(SkillId, Entity, String)> = {
+        let catalog = app.world().resource::<SkillCatalog>();
+        catalog
+            .iter()
+            .map(|(id, entity)| {
+                let name = app
+                    .world()
+                    .get::<Skill>(entity)
+                    .map(|skill| skill.name.clone())
+                    .unwrap_or_default();
+                (id, entity, name)
+            })
+            .collect()
+    };
+    assert!(before.len() > 1, "内容里不止一个技能（否则插队测不出来）");
+
+    // 在最前面插一条全新的技能：照抄第一条，只改 id / name。
+    edit_skills(&mut app, |skills| {
+        let mut fresh = skills[0].clone();
+        fresh.id = "brand_new_skill".to_owned();
+        fresh.name = "全新技能".to_owned();
+        skills.insert(0, fresh);
+    });
+    app.update();
+
+    let catalog = app.world().resource::<SkillCatalog>();
+    for (id, entity, name) in &before {
+        assert_eq!(
+            catalog.get(*id).copied(),
+            Some(*entity),
+            "`{name}`（{id:?}）被插队顶掉了 ID —— 它现在指向别的技能"
+        );
+        assert_eq!(
+            app.world()
+                .get::<Skill>(*entity)
+                .map(|skill| skill.name.clone()),
+            Some(name.clone()),
+            "`{name}` 的定义实体被换成了别的技能"
+        );
+    }
+}
+
+#[test]
+fn a_broken_config_keeps_the_old_content_instead_of_panicking() {
+    let mut app = headless_app();
+    app.update();
+
+    let before = app.world().resource::<SkillCatalog>().len();
+
+    // 引用了词汇表里没有的池 → 加载期的覆盖检查会挡下来。
+    edit_skills(&mut app, |skills| {
+        skills[0]
+            .costs
+            .push(voxelith_axiom::behaviors::content::CostRon {
+                pool: "definitely_not_a_pool".to_owned(),
+                amount: 1.0,
+            });
+    });
+    // **不该 panic**：运行期炸掉用户正在玩的局毫无意义（启动期才该当场炸）。
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<SkillCatalog>().len(),
+        before,
+        "翻译失败要保留旧目录"
+    );
 }
