@@ -26,6 +26,7 @@
 //! `look_at` 会引入"目标点"这个中间概念，反而不好调。
 
 use bevy::camera::ScalingMode;
+use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use voxelith_axiom::world::{CHUNK_SIZE, ChunkPos};
 
@@ -345,32 +346,34 @@ mod tests {
 #[derive(Resource, Debug, Default)]
 pub struct DiagnosticTick(pub u32);
 
-/// **诊断**：把场景里所有相机的实际参数打出来。
+/// 场景里的**一台相机**（诊断系统的查询项）。
 ///
-/// 黑屏排查时靠它拿实数（读源码猜不出来"相机到底在不在、投影是什么"）。
-/// 只在最初几帧打，之后闭嘴。
-pub fn log_cameras(
-    mut tick: ResMut<DiagnosticTick>,
-    cameras: Query<(
-        Entity,
-        &Camera,
-        &Transform,
-        Option<&Projection>,
-        Option<&Camera3d>,
-        Option<&Camera2d>,
-    )>,
-) {
-    tick.0 += 1;
-    if tick.0 > 3 {
-        return;
-    }
-    for (entity, camera, transform, projection, is_3d, is_2d) in &cameras {
-        let kind = match (is_3d.is_some(), is_2d.is_some()) {
+/// 六个字段里五个是可选投影模式，写成一个具名结构之后，
+/// "这台相机是什么"从调用点的 `match (is_3d, is_2d)` 变成 [`Self::kind`]。
+#[derive(QueryData)]
+pub struct CameraSnapshot {
+    /// 相机实体。
+    entity: Entity,
+    camera: &'static Camera,
+    transform: &'static Transform,
+    projection: Option<&'static Projection>,
+    is_3d: Option<&'static Camera3d>,
+    is_2d: Option<&'static Camera2d>,
+}
+
+impl CameraSnapshotItem<'_, '_> {
+    /// 哪种相机（2D / 3D / 都缺 —— 最后一种说明实体上只有个裸 `Camera`）。
+    fn kind(&self) -> &'static str {
+        match (self.is_3d.is_some(), self.is_2d.is_some()) {
             (true, _) => "Camera3d",
             (_, true) => "Camera2d",
             _ => "Camera(?)",
-        };
-        let projection = match projection {
+        }
+    }
+
+    /// 投影模式的人话描述（**没有 `Projection` 组件**是黑屏的常见原因，单独说出来）。
+    fn projection_label(&self) -> String {
+        match self.projection {
             Some(Projection::Orthographic(ortho)) => format!(
                 "Orthographic{{mode={:?}, near={}, far={}, scale={}}}",
                 ortho.scaling_mode, ortho.near, ortho.far, ortho.scale
@@ -378,10 +381,29 @@ pub fn log_cameras(
             Some(Projection::Perspective(_)) => "Perspective".to_owned(),
             Some(other) => format!("{other:?}"),
             None => "**没有 Projection 组件**".to_owned(),
-        };
+        }
+    }
+}
+
+/// **诊断**：把场景里所有相机的实际参数打出来。
+///
+/// 黑屏排查时靠它拿实数（读源码猜不出来"相机到底在不在、投影是什么"）。
+/// 只在最初几帧打，之后闭嘴。
+pub fn log_cameras(mut tick: ResMut<DiagnosticTick>, cameras: Query<CameraSnapshot>) {
+    tick.0 += 1;
+    if tick.0 > 3 {
+        return;
+    }
+    for camera in &cameras {
         info!(
-            "[相机] {entity} {kind} order={} active={} clear={:?} pos={:?} proj={projection}",
-            camera.order, camera.is_active, camera.clear_color, transform.translation,
+            "[相机] {} {} order={} active={} clear={:?} pos={:?} proj={}",
+            camera.entity,
+            camera.kind(),
+            camera.camera.order,
+            camera.camera.is_active,
+            camera.camera.clear_color,
+            camera.transform.translation,
+            camera.projection_label(),
         );
     }
     if cameras.is_empty() {

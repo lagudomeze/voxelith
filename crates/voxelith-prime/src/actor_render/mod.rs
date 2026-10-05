@@ -117,12 +117,6 @@ impl Movement {
     }
 }
 
-/// 这个角色在走路（**由 [`drive_demo_patrol`] 或将来的输入 / AI 写**）。
-///
-/// 本模块**只读**它来决定播哪一帧，不自己写。
-#[derive(Component, Debug, Clone, Copy, Default)]
-pub struct Moving;
-
 /// 挂在角色实体上的**渲染意图**（由内容层在生成角色时挂上）。
 ///
 /// 只携带数据（哪个行组、什么配色），不含任何渲染句柄。
@@ -405,16 +399,18 @@ fn battlefield_slot(index: u32) -> Vec2 {
 /// **演示用**：让每个角色沿 `X` 轴来回巡逻，产生真实的位移与速度。
 ///
 /// 这是"移动"的**临时来源**：玩法层还没有空间维度。接入输入或 AI 之后，
-/// 把写入 `Movement` / `Moving` 的职责交给它们，删掉这个系统即可
-/// —— `advance_animation` 只依赖 `Moving` 与 `Movement::velocity`，不需要改。
+/// 把写 `Movement` 的职责交给它们，删掉这个系统即可
+/// —— `advance_animation` 只依赖 `Movement::is_moving()` 与速度，不需要改。
+/// （曾经还有一个 `Moving` 标记组件挂在查询上，但**从没有人 insert 过它**，
+/// 于是 `Has<Moving>` 恒为 false 且不报错；既然判据已经全走 `Movement`，删掉了。）
 fn drive_demo_patrol(
     time: Res<Time>,
     config: Res<DemoPatrolConfig>,
-    mut actors: Query<(&mut Movement, &mut DemoPatrol, Has<Moving>)>,
+    mut actors: Query<(&mut Movement, &mut DemoPatrol)>,
 ) {
     let delta = time.delta_secs();
     let omega = config.phase_per_second * std::f32::consts::TAU;
-    for (mut movement, mut patrol, _) in &mut actors {
+    for (mut movement, mut patrol) in &mut actors {
         patrol.phase += delta * omega;
         // 位置走正弦，速度是它的导数 —— 两者自洽，不会出现"位置没动但速度非零"。
         movement.position.x = patrol.origin.x + patrol.phase.sin() * config.amplitude;

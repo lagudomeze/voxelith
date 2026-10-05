@@ -27,11 +27,13 @@ mod support;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
-use voxelith_axiom::atoms::actor::{ActionEnergy, ActorState, Faction};
+use voxelith_axiom::atoms::actor::{
+    ActionEnergy, Actor, ActorState, Cooldowns, Faction, Resources,
+};
 use voxelith_axiom::behaviors::action::CastsSkill;
 use voxelith_axiom::behaviors::content::{SkillCatalog, SkillId, StatusId};
 use voxelith_axiom::behaviors::monster::{
-    AiChoice, AiDecision, DecisionSlot, SettledBy, decision_of,
+    AiChoice, AiDecision, DecidedBy, DecisionSlot, SettledBy, decision_of,
 };
 use voxelith_axiom::behaviors::phase::PendingThreat;
 use voxelith_axiom::behaviors::requirement::Condition;
@@ -112,6 +114,72 @@ fn free_the_window(app: &mut App) {
         app.world_mut().entity_mut(action).despawn();
     }
     app.world_mut().insert_resource(PendingThreat::default());
+}
+
+/// **决策槽是 `SparseSet`：插上 / 摘下它不该把怪物那一行组件搬家。**
+///
+/// 判据是 **table**，不是 archetype。第一版断言 "archetype 不变"，**它红了** —— 而组件
+/// 确实已经是 `SparseSet`。Bevy 的真实模型比"不参与 archetype 身份"更细：`Archetype`
+/// 是一组组件，`Table` 才是存组件行的地方，**多个 archetype 共用一张 table**；
+/// `SparseSet` 组件会进 archetype 的组件表但不进 table。所以插它仍然换 archetype，
+/// 只是**不换 table**——省掉的正是"整行组件拷到新地方"这一步。
+/// 详见 [docs/bevy-queries.md](../../../docs/bevy-queries.md) §3.1。
+#[test]
+fn the_decision_slot_does_not_move_the_monster_between_tables() {
+    let mut world = World::new();
+    let monster = world
+        .spawn((
+            Actor,
+            ActionEnergy::new(1.0, 1.0),
+            Resources::default(),
+            Cooldowns::default(),
+        ))
+        .id();
+    let table_before = world.entity(monster).archetype().table_id();
+
+    // 决策实体挂上去 → 关系钩子给怪物插 `DecisionSlot`。
+    let decision = world.spawn(DecidedBy(monster)).id();
+    world.flush();
+    assert!(
+        world.get::<DecisionSlot>(monster).is_some(),
+        "关系钩子该给怪物插上槽"
+    );
+    assert_eq!(
+        world.entity(monster).archetype().table_id(),
+        table_before,
+        "插上 `DecisionSlot` 不该让怪物换 table（它是 SparseSet）"
+    );
+
+    // 决策没了 → 槽被摘掉（空集合会连组件一起摘）。
+    world.despawn(decision);
+    world.flush();
+    assert!(
+        world.get::<DecisionSlot>(monster).is_none(),
+        "决策没了槽也该没"
+    );
+    assert_eq!(
+        world.entity(monster).archetype().table_id(),
+        table_before,
+        "摘下 `DecisionSlot` 也不该让怪物换 table（它是 SparseSet）"
+    );
+}
+
+/// **存储类型本身也要钉住**：它是"档位选择"，不是行为——改回 `Table` 不会让任何
+/// 逻辑出错，只会让每次决定多搬一遍整行组件，**而且什么都不报**。
+#[test]
+fn the_decision_slot_is_registered_as_a_sparse_set() {
+    let mut world = World::new();
+    let id = world.register_component::<DecisionSlot>();
+    let storage = world
+        .components()
+        .get_info(id)
+        .expect("刚注册的组件有信息")
+        .storage_type();
+    assert_eq!(
+        storage,
+        bevy_ecs::component::StorageType::SparseSet,
+        "决策槽每个决策周期插一次摘一次，必须是 SparseSet（见 docs/bevy-queries.md）"
+    );
 }
 
 /// **决定先于执行**：只有一格威胁窗口，没轮到的怪物也已经决定了，只是还没出手。

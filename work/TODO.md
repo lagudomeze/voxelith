@@ -78,6 +78,93 @@ monster_act            决策槽有货 + 威胁窗口空 → 生成威胁行动 
 
 ---
 
+# ✅ 查询写法与组件存储：`QueryData` / `QueryFilter` / `SparseSet`
+
+## 先做了一遍普查，再动手
+
+你要的是两件事：**用 `QueryData`/`QueryFilter` 简化查询**、**枚举值用 `SparseSet`**。
+动手前先把"哪里真的用得上"查了一遍，结果和预期不一样，值得记下来：
+
+| 候选 | 结论 |
+|---|---|
+| `Faction`（枚举组件） | **不改**。它生成时写一次、之后永不改 ⇒ `SparseSet` 一点好处都没有，反而拖慢 `With<Faction>` |
+| `ReadyToResolve` / `ResolveNow` / `Threat` | **不改**。它们是**过滤器**（`With<ReadyToResolve>`），`SparseSet` 让过滤更慢；而且只插一次 |
+| `DecisionSlot` | ✅ 改。每个决策周期插一次摘一次，怪物身上十来个组件 |
+| `PendingChunkMesh` | ✅ 改。临时标记，区块实体带着 `Mesh3d` / `MeshMaterial3d` 一串 |
+| `Moving`（标记） | ❌ **删掉**：**从没有人 insert 过它**，`Has<Moving>` 恒为 false 且不报错 |
+
+**结论写成了判据**：问的不是"它是不是枚举"，而是"**它会不会被反复插删**"。
+`Faction` 是枚举但零增删；`DecisionSlot` 不是枚举却每周期增删。详见
+[docs/bevy-queries.md](../docs/bevy-queries.md) §3.2。
+
+## 改了什么
+
+**`QueryData`（3 处，都满足"元组 ≥ 4 字段"或"要挂方法"）**
+
+| 类型 | 在 | 它买到了什么 |
+|---|---|---|
+| `ReadyAction` | `behaviors/action` | 四元组 `(Entity, &CastsSkill, &InitiatedBy, &Action)` 有了名字 |
+| `DecidingMonster` + `is_busy()` | `behaviors/monster` | 六元组；"它是不是正忙"从散落的条件变成方法 |
+| `CameraSnapshot` + `kind()` / `projection_label()` | `voxel_render/camera` | 六元组；诊断函数体的 `match` 收进方法 |
+
+**`QueryFilter`（2 个类型，4 处使用）**
+
+```rust
+pub struct InputDriven { player: With<Player> }      // 引擎角色轴：听输入的
+pub struct AiDriven    { not_player: Without<Player> } // 引擎角色轴：自己 tick 的
+```
+
+它筛的是"谁听输入"，**不是**"谁是自己人"——一个 AI 驱动的友方 NPC 是
+`Faction::Player` 却不该被 `InputDriven` 选中。裸的 `With<Player>` 读起来分不出这两件事，
+而本项目的三条正交轴正是靠这种区分活着的。顺带把 `update_phase` 里**没被读的**
+`&Player` 字段去掉了。
+
+**其余地方不写**：两三个字段的元组包成结构体只是多一层跳转，没有信息增益。
+
+## 一个把我说服了的细节：判据是 **table**，不是 archetype
+
+第一版验证测试断言"插上 `SparseSet` 组件后 **archetype** 不变"——**它红了**，
+而组件确实已经是 `SparseSet`。
+
+Bevy 的真实模型比"参与 / 不参与 archetype 身份"更细：
+
+- `Archetype` = 一组组件；
+- `Table` = 真正存组件行的地方，**多个 archetype 可以共用一张 table**；
+- 插 `SparseSet` 组件**仍然会换 archetype**，只是**不换 table**。
+
+省掉的正是"把那一整行 `Table` 组件拷到新地方"。所以断言要写在
+`archetype().table_id()` 上。写在 `archetype().id()` 上会得出"没生效"的**错误结论**
+——我差点因此去翻 Bevy 的 bug。
+
+## 每条存储选择配两条测试
+
+| 测试 | 防什么 |
+|---|---|
+| `the_decision_slot_is_registered_as_a_sparse_set` | 有人顺手改回 `Table`：**什么都不报，只是变慢** |
+| `the_decision_slot_does_not_move_the_monster_between_tables` | 属性写了但没生效（被别的 derive 属性吃掉） |
+| `the_pending_marker_does_not_move_the_chunk_between_tables` | 同上，区块侧 |
+
+变异验证：把 `#[component(storage = "SparseSet")]` 删掉 → 两条都红。
+
+## 顺手修的与顺带发现的
+
+- **删掉死标记 `Moving`**：声明了、写进了查询（`Has<Moving>`）、**从来没被 insert 过**，
+  于是恒为 false 且不报错。判据早就全走 `Movement::is_moving()`。
+- `atoms/actor.rs` 越过 R26 的 500 行 → 按**语义**切成
+  `atoms/actor/mod.rs`（数值：池 / 属性 / 冷却 / 状态槽 / 能量）
+  + `atoms/actor/axes.rs`（三条正交轴 + 两个过滤器），重导出保持旧路径不变。
+- 派生宏要**显式 `use`**：`bevy_ecs::query::{QueryData, QueryFilter}`——
+  prelude 只给 trait 不给 derive 宏，只靠 prelude 会得到一堆
+  "cannot find derive macro / not a valid Query data" 的连环报错。
+
+## 证据
+
+**290 测试全绿、守卫 10/10。** 真机跑一遍：截图哈希 `52E53BE05531205A`
+**与改动前逐像素相同**，`log_cameras`（换成了 `QueryData`）输出的相机诊断一字不差
+——这次重构是行为中性的，不是"改了顺便修了点别的"。
+
+---
+
 # ✅ 静态配置改成 `Asset`：用 `SceneComponent` 装载六份 `.ron`
 
 ## 改了什么

@@ -13,6 +13,7 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_state::prelude::*;
 
+use crate::atoms::actor::InputDriven;
 use crate::behaviors::action::ActiveActions;
 use crate::behaviors::skill::{Skill, SkillTags};
 
@@ -143,7 +144,7 @@ impl CombatLog {
 pub fn update_phase(
     phase: Res<State<CombatPhase>>,
     mut next: ResMut<NextState<CombatPhase>>,
-    players: Query<(&crate::atoms::actor::Player, Option<&ActiveActions>)>,
+    players: Query<Option<&ActiveActions>, InputDriven>,
     threat: Res<PendingThreat>,
     available: Res<AvailableSkills>,
     skills: Query<&Skill>,
@@ -157,14 +158,14 @@ pub fn update_phase(
 /// 目标相位：返回 `None` 表示"维持现状"。
 pub fn desired_phase(
     current: &CombatPhase,
-    players: &Query<(&crate::atoms::actor::Player, Option<&ActiveActions>)>,
+    players: &Query<Option<&ActiveActions>, InputDriven>,
     threat: &PendingThreat,
     available: &AvailableSkills,
     skills: &Query<&Skill>,
 ) -> Option<CombatPhase> {
     let player_idle = players
         .iter()
-        .any(|(_, actions)| actions.is_none_or(|actions| actions.is_empty()));
+        .any(|actions| actions.is_none_or(|actions| actions.is_empty()));
     let has_threat = threat.is_active();
     let has_counter = available.has_tagged(skills, SkillTags::COUNTER);
 

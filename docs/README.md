@@ -31,6 +31,7 @@
 | [combat-mechanics.md](combat-mechanics.md) | 旧战斗机制设计稿（**已被取代**）：不变量 I1–I6、伤害管线、抵抗、判定层、里程碑。保留取舍过程 |
 | [numbers.md](numbers.md) | **数值设计（ToME4 参考）**：两个曲线原语（`Scale` / `Rescale`）、为什么是分段线性而不是对数、抗性/护甲/判定/状态/资源的设计取舍、落地优先级 |
 | [bevy-events.md](bevy-events.md) | **Message vs Event 的选择依据**：两套机制对比、决策树、本项目逐场景判定、代码模板、陷阱 |
+| [bevy-queries.md](bevy-queries.md) | **查询写法与组件存储**：`QueryData` / `QueryFilter` 何时值得写、`Table` vs `SparseSet` 的判据（**判据是 table 不是 archetype**）、本项目逐组件选择、怎么验证 |
 | [debugging.md](debugging.md) | **调试通道（项目侧）**：两条通道（BRP HTTP / egui）、代码接线、相机前提、`LNK1102`。查询配方见 skill |
 
 ## 状态说明

@@ -41,9 +41,12 @@
 //! 于是怪物再也不出手，而且什么都不报。挂到行动上就完全不需要反推。
 
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_time::Time;
 
-use crate::atoms::actor::{ActionEnergy, ActorRole, Cooldowns, Player, Resources, Stats};
+use crate::atoms::actor::{
+    ActionEnergy, ActorRole, AiDriven, Cooldowns, InputDriven, Resources, Stats,
+};
 use crate::behaviors::action::{Action, CastsSkill, InitiatedBy, ResolveNow};
 use crate::behaviors::content::SkillId;
 use crate::behaviors::effect::EffectParams;
@@ -81,7 +84,20 @@ pub struct DecidedBy(pub Entity);
 /// "第二条"在语义上根本不成立（`Vec` 会让人以为可以排队）。
 ///
 /// `linked_spawn`：怪物被 despawn 时决策跟着销毁——决策不能脱离它的怪物独立存在。
+///
+/// ## 为什么是 `SparseSet`
+///
+/// 槽**每个决策周期插一次、摘一次**（决定 → 挂到行动上 → 行动没了就退役），而怪物身上
+/// 有十来个组件（`Actor` / `Faction` / `ActionEnergy` / `MonsterDef` / `Resources` /
+/// `Stats` / `Cooldowns` / `ActorState` / `ActorTags` + 表现层那几个）。用默认的 `Table`
+/// 存储，每插一次都要把这一整行**搬**到另一个 archetype，摘的时候再搬回来；
+/// `SparseSet` 组件**不参与 archetype 身份**，插删只动稀疏集。
+///
+/// 这个槽也**不用来当过滤器**（`monster_decide` 读的是 `Option<&DecisionSlot>`，
+/// 它是数据不是筛选条件），所以不必吃"`SparseSet` 的 `With` 过滤更慢"那条代价。
+/// 判据见 [docs/bevy-queries.md](../../../../docs/bevy-queries.md)。
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[component(storage = "SparseSet")]
 #[relationship_target(relationship = DecidedBy, linked_spawn)]
 pub struct DecisionSlot(Entity);
 
@@ -107,6 +123,39 @@ pub struct SettledBy(pub Entity);
 #[relationship_target(relationship = SettledBy, linked_spawn)]
 pub struct Settles(Entity);
 
+/// 一个**可能要做决定**的怪物（`monster_decide` 的查询项）。
+///
+/// 六个字段的四元组早就不止"元组"了：它们合起来是"这个怪物现在能不能决定"这件事的
+/// 全部输入。做成具名结构之后，"它是不是正忙"从散落的条件变成 [`Self::is_busy`]，
+/// 加字段也不用再去数元组里的第几位是哪个。
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct DecidingMonster {
+    /// 怪物实体（日志 / 上下文 / 关系源都用它）。
+    pub entity: Entity,
+    /// 出手能量。
+    pub energy: &'static mut ActionEnergy,
+    /// AI 候选。
+    pub definition: &'static MonsterDef,
+    /// 当前决策槽（**数据，不是过滤器**：没有槽也要遍历到）。
+    pub slot: Option<&'static DecisionSlot>,
+    /// 自己的池（写费用）。
+    pub resources: &'static mut Resources,
+    /// 自己的冷却（写冷却）。
+    pub cooldowns: &'static mut Cooldowns,
+}
+
+impl DecidingMonsterItem<'_, '_> {
+    /// 槽里**真的有**决策吗？
+    ///
+    /// 问的必须是"有没有决策"，不能只看组件在不在：`DecisionSlot` 被拆掉时组件本身的
+    /// 清理是**排队命令**，同一帧里它还可能在、只是集合已经空了（模块文档坑 1）——
+    /// 那时怪物应该能立刻重新决定。
+    pub fn is_busy(&self) -> bool {
+        decision_of(self.slot).is_some()
+    }
+}
+
 /// 决定：能量攒满 → 选招 → **写进决策槽**（不生成行动）。
 ///
 /// 顺带结账：上一次的威胁行动已经不存在了（已生效 / 被反制取消）→ 清掉 [`PendingThreat`]。
@@ -117,18 +166,8 @@ pub struct Settles(Entity);
 pub fn monster_decide(
     time: Res<Time>,
     mut commands: Commands,
-    mut monsters: Query<
-        (
-            Entity,
-            &mut ActionEnergy,
-            &MonsterDef,
-            Option<&DecisionSlot>,
-            &mut Resources,
-            &mut Cooldowns,
-        ),
-        Without<Player>,
-    >,
-    players: Query<Entity, With<Player>>,
+    mut monsters: Query<DecidingMonster, AiDriven>,
+    players: Query<Entity, InputDriven>,
     stats: Query<&Stats>,
     threats: Query<(), With<Threat>>,
     mut params: EffectParams,
@@ -146,30 +185,29 @@ pub fn monster_decide(
     // 目标阵营（`TargetIsEnemy` 用）：怪物打人之前先看阵营，而不是看"谁带 Player 标记"。
     let target_faction = faction_of(&params.factions, target);
 
-    for (monster, mut energy, definition, slot, mut resources, mut cooldowns) in &mut monsters {
-        // 槽里**真的有**决策吗？问的必须是"有没有决策"，不能只看组件在不在：
-        // `DecisionSlot` 被拆掉时组件本身的清理是**排队命令**，同一帧里它还可能在、
-        // 只是集合已经空了（模块文档坑 1）——那时怪物应该能立刻重新决定。
+    for mut monster in &mut monsters {
+        // 已经有决定了（还没执行）→ 不再攒能量，也不改主意。
         //
         // 这一句同时挡住的是一对一关系的**孤儿泄漏路径**：不给"换一条决策"任何机会，
         // 只在槽空时 spawn 新决策。删掉它，等窗口的怪物会每帧重写一条决策，
         // 旧实体被静静解绑留在世界里，什么都不报。
-        if decision_of(slot).is_some() {
+        if monster.is_busy() {
             continue;
         }
-        if !energy.tick(delta) {
+        if !monster.energy.tick(delta) {
             continue;
         }
+        let actor = monster.entity;
 
         // 自己的池用可变那份（写费用），属性走参数包（只读）。
-        let actor_pools: &Resources = &resources;
-        let actor_stats = stats.get(monster).ok();
+        let actor_pools: &Resources = &monster.resources;
+        let actor_stats = stats.get(actor).ok();
         let reads = params.reads_view(actor_pools, actor_stats);
         // 怪物自己的状态也要进上下文：不然 `Condition::HasStatus` 永远不成立
         // （"残血时逃跑"能写、"中毒时抓狂"写不出来）。
         let status_list = params
             .actor_states
-            .get(monster)
+            .get(actor)
             .map(|state| state.statuses.clone())
             .unwrap_or_default();
         let statuses = crate::behaviors::requirement::status_snapshot(
@@ -178,14 +216,14 @@ pub fn monster_decide(
             &params.status_defs,
         );
         let context = CasterContext {
-            actor: monster,
+            actor,
             resources: actor_pools,
             stats: actor_stats,
-            cooldowns: &cooldowns,
-            tags: params.actor_tags.get(monster).ok(),
-            // monsters 查询带 Without<Player>，所以这里一定是怪物角色。
+            cooldowns: &monster.cooldowns,
+            tags: params.actor_tags.get(actor).ok(),
+            // monsters 查询走 `AiDriven`（引擎角色轴的非玩家侧），所以这里一定是怪物角色。
             role: Some(ActorRole::Monster),
-            faction: faction_of(&params.factions, Some(monster)),
+            faction: faction_of(&params.factions, Some(actor)),
             statuses: &statuses,
             reads: &reads,
             active_action_count: 0,
@@ -199,7 +237,7 @@ pub fn monster_decide(
             continue;
         };
         let Some(decision) = choose_skill(
-            &definition.ai,
+            &monster.definition.ai,
             &context,
             catalog,
             &reads,
@@ -215,11 +253,11 @@ pub fn monster_decide(
         // 费用与冷却在**决定那一刻**付：决定一旦写下就成立，不会因为"等窗口"的这几帧里
         // 池子变了而变成付不起——付不起的决策会永远卡在槽里，等于这只怪再也不会出手。
         for cost in &skill.costs {
-            resources.modify(cost.pool, -cost.amount);
+            monster.resources.modify(cost.pool, -cost.amount);
         }
-        cooldowns.start(skill.id, skill.duration.max(0.5));
+        monster.cooldowns.start(skill.id, skill.duration.max(0.5));
 
-        commands.spawn((decision, DecidedBy(monster)));
+        commands.spawn((decision, DecidedBy(actor)));
     }
 }
 
@@ -229,7 +267,7 @@ pub fn monster_decide(
 /// 下一帧不改主意、也不重新掷一次。
 pub fn monster_act(
     mut commands: Commands,
-    monsters: Query<(Entity, &DecisionSlot), Without<Player>>,
+    monsters: Query<(Entity, &DecisionSlot), AiDriven>,
     decisions: Query<&AiDecision>,
     skills: Query<&Skill>,
     mut threat: ResMut<PendingThreat>,

@@ -44,7 +44,19 @@ use super::mesher::{ChunkMesh, greedy_mesh};
 /// 存活期间实体是**空壳**（有 `ChunkMeshEntity` 但没有 `Mesh3d`）——
 /// 这样"哪些区块正在算"是**可直接查询的世界状态**，
 /// 而不是藏在某个资源里的一堆句柄。
+///
+/// ## 为什么是 `SparseSet`
+///
+/// 它是**临时标记**：派发时插上、收结果时摘掉，而区块实体上挂着 `Mesh3d` /
+/// `MeshMaterial3d`（它们各自还会带上 `Transform` / `Visibility` / `GlobalTransform`
+/// 等）——用默认的 `Table` 存储，插一次摘一次就要把这一整行搬到另一个 archetype
+/// 再搬回来。改一个方块就会重算它所在的区块，而按住鼠标改就是每帧都在搬。
+///
+/// 它**不当过滤器用**（`collect` 读的是 `&mut PendingChunkMesh`，是数据），
+/// 所以不会吃到"`SparseSet` 的 `With` 过滤更慢"那条代价。
+/// 判据见 [docs/bevy-queries.md](../../../../docs/bevy-queries.md)。
 #[derive(Component)]
+#[component(storage = "SparseSet")]
 pub struct PendingChunkMesh {
     /// 在等哪个区块。
     ///
@@ -312,6 +324,59 @@ mod tests {
         assert!(
             !can_skip(&store, &terrain, chunk),
             "改过的区块绝不能跳：否则玩家放的悬空方块会永久不显示"
+        );
+    }
+
+    /// **`PendingChunkMesh` 是 `SparseSet`：插上它不该把区块那一行组件搬家。**
+    ///
+    /// 判据写在 **table** 上而不是 archetype 上：`SparseSet` 组件仍然会进 archetype
+    /// 的组件表，只是**不进 table**。真正省掉的是"把那一整行 `Table` 组件拷到新地方"，
+    /// 而区块实体身上挂着 `Mesh3d` / `MeshMaterial3d`（各自还带 `Transform` /
+    /// `Visibility` / `GlobalTransform` 等）。改一个方块就要重算它所在的区块，
+    /// 按住鼠标改就是每帧都在搬。
+    ///
+    /// 见 [docs/bevy-queries.md](../../../../docs/bevy-queries.md)。
+    #[test]
+    fn the_pending_marker_does_not_move_the_chunk_between_tables() {
+        use bevy::ecs::component::StorageType;
+
+        // 存储类型先钉住：它不是行为，改回 `Table` 不会让任何逻辑出错，只会变慢。
+        let mut world = World::new();
+        let id = world.register_component::<PendingChunkMesh>();
+        assert_eq!(
+            world.components().get_info(id).unwrap().storage_type(),
+            StorageType::SparseSet,
+            "临时标记必须是 SparseSet"
+        );
+
+        // 再用行为证明一次：区块实体（带几个 Table 组件）插上标记，table 不变。
+        let task = bevy::tasks::AsyncComputeTaskPool::get_or_init(|| bevy::tasks::TaskPool::new())
+            .spawn(async { ChunkMesh::default() });
+        let chunk = world
+            .spawn((
+                Name::new("chunk[0,0,0]"),
+                ChunkMeshEntity {
+                    chunk: ChunkPos::new(0, 0, 0),
+                },
+            ))
+            .id();
+        let table_before = world.entity(chunk).archetype().table_id();
+
+        world.entity_mut(chunk).insert(PendingChunkMesh {
+            chunk: ChunkPos::new(0, 0, 0),
+            task,
+        });
+        assert_eq!(
+            world.entity(chunk).archetype().table_id(),
+            table_before,
+            "插上 `PendingChunkMesh` 不该让区块换 table（它是 SparseSet）"
+        );
+
+        world.entity_mut(chunk).remove::<PendingChunkMesh>();
+        assert_eq!(
+            world.entity(chunk).archetype().table_id(),
+            table_before,
+            "摘下它同样不该换 table"
         );
     }
 }

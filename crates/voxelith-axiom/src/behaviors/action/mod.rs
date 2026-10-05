@@ -16,9 +16,10 @@ pub use casting::{CastParams, cast_requests};
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_time::Time;
 
-use crate::atoms::actor::{ActorRole, Monster, Player, Resources, Stats};
+use crate::atoms::actor::{ActorRole, InputDriven, Monster, Resources, Stats};
 use crate::behaviors::content::{SkillCatalog, StatusCatalog};
 use crate::behaviors::contest::CombatRng;
 use crate::behaviors::effect::{EffectContext, EffectParams, execute_effect};
@@ -102,6 +103,27 @@ pub struct ResolveNow;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadyToResolve;
 
+/// 一条**到时长、待结算**的行动（`resolve_actions` 的查询项）。
+///
+/// 为什么用 `QueryData` 而不是四元组：结算那一段本来就要读这四个字段，
+/// 写成具名结构之后，"一条待结算的行动由什么组成"变成一个有名字的类型，
+/// 加字段时改一处、编译器会把所有读它的地方指出来。
+///
+/// **`With<ReadyToResolve>` 仍然是过滤器，不是这里的字段**：它是"扫哪些实体"，
+/// 放进 `QueryData` 就变成"拿到了就是 `None`"，语义与性能都不一样
+/// （见 [docs/bevy-queries.md](../../../../docs/bevy-queries.md)）。
+#[derive(QueryData)]
+pub struct ReadyAction {
+    /// 行动实体本身（结算完要销毁它）。
+    pub entity: Entity,
+    /// 它释放的技能定义（`Targeting` 要从这里读）。
+    pub cast: &'static CastsSkill,
+    /// 发起它的角色。
+    pub owner: &'static InitiatedBy,
+    /// 行动本身（进度 / 目标）。
+    pub action: &'static Action,
+}
+
 /// 释放请求（**Message**，请求型）：L2 输入 / AI → L1。
 ///
 /// 定义在发出它的模块（**R33**），由 [`ActionPlugin`] 注册（**R34**）。
@@ -140,23 +162,24 @@ pub fn tick_actions(
 /// 结算行动：解析目标 → 执行技能的全部效果 → 销毁实例（槽自动空出来）。
 pub fn resolve_actions(
     mut commands: Commands,
-    ready: Query<(Entity, &CastsSkill, &InitiatedBy, &Action), With<ReadyToResolve>>,
+    ready: Query<ReadyAction, With<ReadyToResolve>>,
     skills: Query<&Skill>,
     monsters: Query<Entity, With<Monster>>,
     resources: Query<&Resources>,
     stats: Query<&Stats>,
     mut params: EffectParams,
 ) {
-    for (action_entity, cast, owner, action) in &ready {
-        let Ok(skill) = skills.get(cast.0) else {
+    for pending in &ready {
+        let Ok(skill) = skills.get(pending.cast.0) else {
             continue;
         };
 
         let targeting = TargetingContext {
-            explicit: action.target,
+            explicit: pending.action.target,
             threat: Some(*params.threat),
         };
-        let target = resolve_target(skill.targeting, owner.0, &targeting, monsters.iter());
+        let owner = pending.owner.0;
+        let target = resolve_target(skill.targeting, owner, &targeting, monsters.iter());
 
         // 只读视图由各查询的**副本**拼成（只读 `Query` 是 `Copy`），
         // 于是 rng / threat / log 可以同时以 `&mut` 借出。
@@ -182,10 +205,10 @@ pub fn resolve_actions(
             skill_power: 0.0,
         };
         for effect in &skill.effects {
-            execute_effect(effect, owner.0, target, &mut context);
+            execute_effect(effect, owner, target, &mut context);
         }
 
-        commands.entity(action_entity).despawn();
+        commands.entity(pending.entity).despawn();
     }
 }
 
@@ -198,7 +221,7 @@ pub fn resolve_actions(
 /// 漏掉 `clear` 的话，敌人换阵营 / 状态到期之后 UI 会一直显示过期的按钮。
 pub fn compute_available_skills(
     mut available: ResMut<AvailableSkills>,
-    players: Query<Entity, With<Player>>,
+    players: Query<Entity, InputDriven>,
     skills: Query<(Entity, &Skill)>,
     resources: Query<&Resources>,
     stats: Query<&Stats>,
@@ -242,7 +265,7 @@ pub fn compute_available_skills(
                 stats: stats.get(actor).ok(),
                 cooldowns: &empty,
                 tags: params.actor_tags.get(actor).ok(),
-                // players 查询带 With<Player>，所以这里一定是玩家角色。
+                // players 查询走 `InputDriven`（引擎角色轴的玩家侧），所以这里一定是玩家角色。
                 role: Some(ActorRole::Player),
                 faction,
                 statuses: &statuses,
