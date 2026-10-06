@@ -6,16 +6,16 @@
 use bevy_ecs::prelude::*;
 
 use crate::atoms::actor::Faction;
-use crate::behaviors::phase::PendingThreat;
 use crate::behaviors::requirement::Targeting;
+use crate::behaviors::threat::Threat;
 
 /// 解析上下文：显式目标 + 威胁登记。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TargetingContext {
     /// 请求里带的目标（`CurrentSelection` 用它）。
     pub explicit: Option<Entity>,
-    /// 当前挂起的威胁。
-    pub threat: Option<PendingThreat>,
+    /// 当前挂起的威胁（第一条：`ThreatSource` 指向它的发起者）。
+    pub threat: Option<Threat>,
 }
 
 /// 按 `Targeting` 解析出目标实体（解析不出来返回 `None`）。
@@ -30,7 +30,7 @@ pub fn resolve_target(
 ) -> Option<Entity> {
     match targeting {
         Targeting::SelfOnly => Some(caster),
-        Targeting::ThreatSource => ctx.threat.and_then(|threat| threat.source),
+        Targeting::ThreatSource => ctx.threat.map(|threat| threat.source),
         Targeting::CurrentSelection => match ctx.explicit {
             Some(target) if target != caster => Some(target),
             _ => nearest_enemy(caster, enemies),
@@ -72,7 +72,7 @@ pub fn faction_of(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::behaviors::phase::PendingThreat;
+    use crate::behaviors::threat::Threat;
 
     fn world_with_monsters() -> (World, Entity, Entity) {
         let mut world = World::new();
@@ -105,10 +105,10 @@ mod tests {
         let other = world.spawn_empty().id();
         let ctx = TargetingContext {
             explicit: Some(other),
-            threat: Some(PendingThreat {
-                action: None,
-                source: Some(monster),
-                target: Some(caster),
+            threat: Some(Threat {
+                action: Entity::PLACEHOLDER,
+                source: monster,
+                target: caster,
             }),
         };
         assert_eq!(

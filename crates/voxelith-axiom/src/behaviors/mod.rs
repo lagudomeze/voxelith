@@ -15,10 +15,11 @@
 //! | [`requirement`] | `Requirement` / `Condition`：门控是纯数据 |
 //! | [`targeting`] | 目标解析（只做"寻找与判定"，R59） |
 //! | [`skill`] | 技能**定义**与标签 |
-//! | [`action`] | 行动**实例**：释放 / 推进 / 结算（成员之一即"行动槽"） |
+//! | [`action`] | 行动**实例**：唯一入口（提交） / 推进 / 结算（成员之一即"行动槽"） |
 //! | [`status`] | 状态**定义 + 实例 + 生命周期 + 派生修饰符** |
-//! | [`monster`] | 怪物：能量 → **决策槽（一对一关系）** → 生成威胁行动 |
-//! | [`phase`] | `CombatPhase` 状态机 + 挂起威胁 + 可用技能 + 战斗日志 |
+//! | [`threat`] | **威胁窗口**：未处理的、针对 PC 的威胁集合（相位暂停的依据） |
+//! | [`monster`] | 怪物：能量 → **意图**（每帧重算，不落地） → 经唯一入口生成行动 |
+//! | [`phase`] | `CombatPhase` 状态机 + 可用技能 + 战斗日志 |
 //! | [`time_scale`] | 用 `Time<Virtual>` 倍率表达"冻结" |
 //! | [`combat`] | 装配（`CombatConfig` + 固定系统顺序） |
 
@@ -33,5 +34,6 @@ pub mod requirement;
 pub mod skill;
 pub mod status;
 pub mod targeting;
+pub mod threat;
 pub mod time_scale;
 pub mod value;

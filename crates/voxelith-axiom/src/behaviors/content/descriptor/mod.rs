@@ -36,6 +36,9 @@ pub struct SkillRon {
     /// 释放时长（秒）：`0.0` = 瞬发。
     #[serde(default)]
     pub duration: f32,
+    /// 后摇时长（秒，可省）：释放点之后仍然占着槽的时间。默认 `0.0` = 没有后摇。
+    #[serde(default)]
+    pub recovery: f32,
     /// 前置需求。
     #[serde(default)]
     pub requirements: Vec<RequirementRon>,

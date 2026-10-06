@@ -25,15 +25,14 @@ pub(super) fn dispel<B: Blob>(
     ctx: &mut EffectContext<'_, '_, '_, B>,
 ) {
     let victim = match who {
-        Who::Target => ctx.pending_threat.source.or(target),
+        Who::Target => ctx.window.source().or(target),
         Who::Caster => Some(caster),
     };
     if let Some(victim) = victim {
         cancel_actions(ctx, victim);
     }
-    ctx.pending_threat.action = None;
-    ctx.pending_threat.source = None;
-    ctx.pending_threat.target = None;
+    // 窗口关掉：玩家用过反制机会之后不再提供（未被反制的威胁照旧结算）。
+    ctx.window.clear();
 }
 
 /// `Effect::Interrupt`：清空目标的行动槽（**不**取消威胁来源）。
@@ -101,11 +100,7 @@ pub fn spawn_action<B: Blob>(
     let action = ctx
         .commands
         .spawn((
-            Action {
-                elapsed: 0.0,
-                duration,
-                target,
-            },
+            Action::wind_up(duration, target),
             CastsSkill(skill_entity),
             InitiatedBy(owner),
         ))

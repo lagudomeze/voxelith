@@ -59,6 +59,7 @@ fn attack_skill() -> SkillRon {
         tags: vec![crate::behaviors::skill::SkillTag::ATTACK],
         roles: Vec::new(),
         duration: 1.0,
+        recovery: 0.0,
         requirements: vec![RequirementRon::Resource {
             pool: "action".into(),
             min: 1.0,

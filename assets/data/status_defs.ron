@@ -1,0 +1,115 @@
+// 状态定义（新栈）—— 与旧 `statuses.ron` 并存，逐步取代它。
+//
+// 命名关系：`skills.ron`（旧）↔ `abilities.ron`（新）、`statuses.ron`（旧）↔ `status_defs.ron`（新）。
+// 旧的不要动：旧管线还在读它，而且它的用例有测试钉着。
+//
+// 一个状态 = 生效期间挂在身上的属性修饰符 + 时长 + 挂在谁身上。
+// 技能按 id 引用（`abilities.ron` 里的 `applies: ["Guarding"]`）。
+//
+// 字段：
+//   id         词汇 ID（技能按它引用）
+//   duration   持续时长（秒）
+//   who        挂在谁身上：`Caster` = 自己（增益）/ `Target` = 对方（减益）
+//   modifiers  生效期间的属性修饰符（**可精确卸下**：diesel 在失去 `Active` 时回收）
+//   tick       周期效果：每 `every` 秒改一次属性（负数是伤害）——DoT / HoT
+//   blocks     **硬控**：封掉哪几类技能（`ATTACK` / `MOVEMENT` / `COUNTER` / `SPELL` / `GUARD` / `INSTANT`）
+//   stacking   **叠层规则**：`Refresh`（默认，只留最新）/ `Replace` / `Ignore`（有就不重挂）/ `Stack(n)`
+//
+// 迁移自旧内容（旧 → 新）：
+//   (id: "guarding", default_duration: 2.0,
+//    modifiers: [(stat: "armor", delta: Literal(10.0))])
+//     → (id: "Guarding", duration: 2.0, who: Caster,
+//        modifiers: [(name: "Armor", literal: 10.0)])
+//
+// **还不能表达的**（旧 `statuses.ron` 里有、这里没法写的）：
+//   · `stacking`（Refresh / Stack(max) / Ignore / Replace）——同一状态挂两次的规则
+//   · `on_apply` / `on_expire` / `on_remove`（进出效果）
+[
+    (
+        id: "Guarding",
+        name: "格挡",
+        duration: 2.0,
+        who: Caster,
+        // 旧内容是 +10；这里先用 +5，等基础属性整体迁移时对齐数值。
+        modifiers: [(name: "Armor", literal: 5.0)],
+        // 再格挡一次只是刷新（不该叠成 +10 护甲）。
+        stacking: Refresh,
+    ),
+    (
+        id: "Weakened",
+        name: "虚弱",
+        duration: 6.0,
+        who: Target,
+        // 旧内容削 strength 与 constitution；新栈的属性表还没有 constitution，先只削力量。
+        // 用**字面量**而不是 `expr: "-Strength * 0.5"`：自引用表达式会在属性图里成环。
+        modifiers: [(name: "Strength", literal: -6.0)],
+        // 虚弱是"一次性减益"：已经虚弱了就不再重挂（时长也不刷新）。
+        stacking: Ignore,
+    ),
+    (
+        id: "Burning",
+        name: "灼烧",
+        duration: 4.0,
+        who: Target,
+        // 旧内容：`on_tick: [ModifyResource(pool: "hp", delta: Neg(Literal(3.0)), who: Target)]`
+        // ⇒ 每 1 秒掉 3 点。
+        //
+        // ⚠️ 新栈的 `tick` 状态**上状态即第一跳**（diesel 在进入生效态时会响一次），
+        // 之后每 `every` 秒一跳。所以 `duration: 4.0` + `every: 1.0` 一共跳 **5** 次
+        // （0/1/2/3/4 秒）；要"4 次"就把时长写 3.0。
+        tick: (
+            every: 1.0,
+            amount: -3.0,
+            attribute: "Health",
+        ),
+        // 可以叠三层：三个实例各跳各的（每跳共 9 点）。超过三层丢最旧的。
+        stacking: Stack(3),
+    ),
+    (
+        id: "Stunned",
+        name: "眩晕",
+        duration: 3.0,
+        who: Target,
+        // **硬控**：封掉攻击 / 反制 / 位移三类技能（法术与格挡照样能放）。
+        // 旧内容里是 `blocks_tags: [ATTACK, COUNTER, MOVEMENT]`。
+        // 判定落在释放门控上：宿主身上的 `BlockedTags` 与技能的 `tags` 求交。
+        blocks: ["ATTACK", "COUNTER", "MOVEMENT"],
+        // 再打晕一次只刷新（不该叠时长）。
+        stacking: Refresh,
+        // 挂上时立刻掉一点血（"晕眩的余震"）：这是 `on_apply` 的示例。
+        on_apply: [(attribute: "Health", amount: -2.0)],
+    ),
+    (
+        id: "Marked",
+        name: "猎手印记",
+        // 很短：印记很快会引爆。
+        duration: 0.5,
+        who: Target,
+        // 三个时机都能看到（这是本状态存在的意义：给三条路各一个可断言的例子）：
+        // ① 挂上时立刻挨一下
+        on_apply: [(attribute: "Health", amount: -4.0)],
+        // ② 自然到期**引爆**
+        on_expire: [(attribute: "Health", amount: -8.0)],
+        // ③ 被顶掉 / 被驱散时印记撕裂（比引爆轻）
+        on_remove: [(attribute: "Health", amount: -3.0)],
+        stacking: Refresh,
+    ),
+    (
+        id: "Corroding",
+        name: "腐蚀",
+        duration: 4.0,
+        who: Target,
+        // **每跳按宿主的最大生命算**（`MaxHealth / -20.0` ⇒ 5%）：表达式能读宿主自己的属性。
+        // 叠三层就是三个实例各跳一次 ⇒ 每跳共 15%（线性叠加是**实例数**带来的，不是表达式）。
+        //
+        // ⚠️ 别在表达式里再乘 `<id>Stacks`：每个实例各跳一次，乘了就是 **N × N** 的双重计数。
+        // 两种模型（"N 个实例各算一次" vs "一个实例 + 层数计数器"）只能选一个；
+        // 新栈现在是前者，后者见 `statuses::TickRon::amount_expr` 的说明。
+        tick: (
+            every: 1.0,
+            amount_expr: "MaxHealth / -20.0",
+            attribute: "Health",
+        ),
+        stacking: Stack(3),
+    ),
+]

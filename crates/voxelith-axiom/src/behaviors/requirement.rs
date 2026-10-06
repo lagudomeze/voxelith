@@ -16,9 +16,9 @@ use crate::atoms::actor::{ActorRole, ActorTags, Cooldowns, Faction, Resources, S
 use crate::atoms::vocabulary::ActorTagId;
 use crate::behaviors::content::{ResourceId, StatusId};
 use crate::behaviors::effect::Blob;
-use crate::behaviors::phase::PendingThreat;
 use crate::behaviors::skill::{Skill, SkillTags};
 use crate::behaviors::status::{ActiveStatus, StatusDef};
+use crate::behaviors::threat::ThreatWindow;
 
 /// 释放技能的前置需求（全部满足才可用）。
 ///
@@ -120,7 +120,7 @@ pub struct CasterContext<'a, B: Blob> {
     /// 当前正在进行的行动数（`NoActiveAction` 的判据）。
     pub active_action_count: usize,
     /// 当前挂起的威胁。
-    pub threat: Option<&'a PendingThreat>,
+    pub threat: Option<&'a ThreatWindow>,
     /// 指定目标。
     pub target: Option<Entity>,
     /// 目标的池（`TargetAlive`）。
@@ -215,7 +215,7 @@ pub fn requirement_ok<B: Blob>(
 
 /// 当前是否存在威胁。
 pub fn threat_active<B: Blob>(ctx: &CasterContext<'_, B>) -> bool {
-    ctx.threat.is_some_and(|threat| threat.action.is_some())
+    ctx.threat.is_some_and(ThreatWindow::is_open)
 }
 
 /// 身上是否有该状态。
@@ -291,6 +291,7 @@ mod tests {
             tags,
             roles: Vec::new(),
             duration: 1.0,
+            recovery: 0.0,
             requirements,
             costs,
             targeting: Targeting::SelfOnly,
@@ -304,7 +305,7 @@ mod tests {
         cooldowns: &'a Cooldowns,
         statuses: &'a [(StatusId, SkillTags)],
         active_action_count: usize,
-        threat: Option<&'a PendingThreat>,
+        threat: Option<&'a ThreatWindow>,
     ) -> CasterContext<'a, NoReads> {
         CasterContext {
             actor: Entity::PLACEHOLDER,
@@ -359,16 +360,17 @@ mod tests {
         let cooldowns = Cooldowns::default();
         let counter = skill(vec![Requirement::HasThreat], Vec::new(), SkillTags::COUNTER);
 
-        let no_threat = PendingThreat::default();
+        let no_threat = ThreatWindow::default();
         let ctx = context(&resources, &cooldowns, &[], 0, Some(&no_threat));
         assert!(!skill_available(&counter, &ctx));
 
-        let threat = PendingThreat {
-            action: Some(Entity::PLACEHOLDER),
-            source: Some(Entity::PLACEHOLDER),
-            target: None,
-        };
-        let ctx = context(&resources, &cooldowns, &[], 0, Some(&threat));
+        let mut window = ThreatWindow::default();
+        window.push(crate::behaviors::threat::Threat {
+            action: Entity::PLACEHOLDER,
+            source: Entity::PLACEHOLDER,
+            target: Entity::PLACEHOLDER,
+        });
+        let ctx = context(&resources, &cooldowns, &[], 0, Some(&window));
         assert!(skill_available(&counter, &ctx));
     }
 

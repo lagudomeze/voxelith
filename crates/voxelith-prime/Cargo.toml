@@ -22,6 +22,20 @@ inspector = ["dep:bevy-inspector-egui"]
 bevy = { workspace = true, features = ["bevy_remote", "debug", "png", "bevy_gltf", "file_watcher"] }
 bevy_brp_extras = { workspace = true }
 bevy-inspector-egui = { workspace = true, optional = true }
+# egui 本体：**直接依赖**（不靠 inspector 间接带进来）。
+# 理由：它是"8 个生态库"之一，要有自己的接线口（`EguiPlugin` 装在 `EcosystemPlugin` 里），
+# 而不是"只有开 inspector 时才碰巧存在"。debug 面板（战斗面板等）将来就搬到这里。
+bevy_egui = { workspace = true }
+
+# ── 生态插件（新架构的 L2 接线）─────────────────────────────────────────────
+# 输入 / 音频 / 粒子 / 存档 / 资产加载 / 补间 / 物理。
+avian3d = { workspace = true }
+bevy_kira_audio = { workspace = true }
+bevy_hanabi = { workspace = true }
+leafwing-input-manager = { workspace = true }
+bevy_tweening = { workspace = true }
+bevy_asset_loader = { workspace = true }
+moonshine-save = { workspace = true }
 # 内容加载：读 `.ron` 文件并解析。**只允许出现在 L2**（R101 精神）——
 # `axiom` 只提供描述结构与词汇映射，自己不碰文件系统。
 ron = { workspace = true }
@@ -32,6 +46,10 @@ icu_segmenter = { workspace = true }
 icu_provider = { workspace = true }
 
 [dependencies.voxelith-axiom]
+workspace = true
+
+# 新架构的中间层：技能三件套（gauge / gearbox / diesel）+ 格子空间后端 + 内容管线。
+[dependencies.voxelith-abilities]
 workspace = true
 
 [dev-dependencies]

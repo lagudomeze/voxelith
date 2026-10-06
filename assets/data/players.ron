@@ -1,13 +1,49 @@
 [
     // 玩家也是**内容**：池 / 属性 / 阵营 / 特性全在这里配，L2 不写死任何数值（规则 13）。
     // `role: Player` = 听输入、不攒能量；换成 `Monster` 就变成一个 AI 控制的友军。
+    //
+    // ---- ToME4 移植要点 ----
+    //
+    // 引擎没有"职业"：能用的技能由 `SkillRon.roles`（Player / Monster）、
+    // `requirements`、`costs` 三者筛出来，**不区分职业与天赋树**。
+    // 所以这个模板是一个"全职业合一"的冒险者：九条池 + 十三个属性，
+    // 谁的技能满足条件谁就能放。想做成真正的职业，需要引擎侧新增
+    // "职业 / 天赋树 / 天赋点"（见 assets/data/tome4-coverage.md 的引擎调整建议）。
     (
         id: "player",
         name: "冒险者",
         role: Player,
-        resources: [("hp", 100), ("mana", 50), ("action", 1), ("reaction", 3)],
-        stats: [("strength", 12), ("armor", 4), ("agility", 8)],
+        // 池的上限与回复取自 `vocabulary.ron` 的模板（`make_pools` 走 pool_templates），
+        // 这里的数字只在**池没有模板**时才是上限 —— 但 `start_full: false` 的池
+        // （失衡 / 灵魂）会用第二个数字当初始值，所以它们写 0 就是"开局是空的"。
+        resources: [
+            ("hp", 100),
+            ("stamina", 100),
+            ("mana", 50),
+            ("action", 1),
+            ("reaction", 3),
+            ("vim", 50),
+            ("equilibrium", 0),
+            ("soul", 0),
+            ("psi", 60),
+        ],
+        // 属性就是"名字 → 一个数"。`level` / `skill_rank` 是伪天赋等级：
+        // 前者喂 `Scale` 曲线，后者给高阶天赋当门控（见 vocabulary.ron 的注释）。
+        stats: [
+            ("strength", 12),
+            ("armor", 4),
+            ("agility", 8),
+            ("dexterity", 10),
+            ("constitution", 10),
+            ("magic", 10),
+            ("willpower", 10),
+            ("cunning", 10),
+            ("accuracy", 10),
+            ("defense", 8),
+            ("level", 1),
+            ("skill_rank", 1),
+        ],
         faction: Player,
-        traits: [],
+        traits: ["humanoid"],
     ),
 ]

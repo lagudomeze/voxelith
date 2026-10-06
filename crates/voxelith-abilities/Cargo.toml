@@ -1,0 +1,20 @@
+# crates/voxelith-abilities/Cargo.toml
+[package]
+name = "voxelith-abilities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy = { workspace = true }
+# 技能三件套。
+bevy_diesel = { workspace = true }
+bevy_gauge = { workspace = true }
+bevy_gearbox = { workspace = true }
+# 内容管线：**这里只解析字符串，不读文件**（读文件、热重载、AssetServer 都是 L2 的事）。
+# 于是"属性写错了"能在加载期报出来，而这一层不需要知道文件从哪来。
+serde = { workspace = true }
+ron = { workspace = true }
+
+[dependencies.voxelith-axiom]
+workspace = true

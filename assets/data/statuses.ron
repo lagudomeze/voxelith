@@ -1,4 +1,7 @@
 [
+    // =====================================================================
+    //  原有六个：`Stacking` / `Formula` 的**内容用例**（别删，有测试钉着）
+    // =====================================================================
     (
         id: "guarding",
         name: "格挡",
@@ -50,17 +53,7 @@
         on_expire: [Log(text: "狂暴消退。")],
         on_remove: [],
     ),
-    // ---- 下面两个是 `Stacking` 的**内容用例**（`Ignore` 与 `Replace`）----
-    //
-    // 引擎早就支持四种叠加规则，但内容里只用过 `Refresh` 与 `Stack`，
-    // 于是 `Ignore` / `Replace` 这两条分支**没有任何东西走过**（也测不到）。
-    // 加这两个状态就是为了让每条分支都有真实用例。
     (
-        // `Ignore`：重复施加**完全无效**。
-        //
-        // 为什么这个语义有存在价值：有些减益不该能被"刷时间"。
-        // 用 `Refresh` 的话，敌人只要在你快醒时补一下，你就永远出不来。
-        // 用 `Ignore` 就锁死了 —— 第一次中了就是那一段时间，谁都别想延长。
         id: "staggered",
         name: "踉跄",
         default_duration: 3.0,
@@ -73,11 +66,6 @@
         on_remove: [],
     ),
     (
-        // `Replace`：重复施加**替换**旧实例，层数重置为 1。
-        //
-        // 与 `Stack` 的差别：`Stack(max: 3)` 会累到 3 层（越叠越疼），
-        // 而 `Replace` 每次都给一个"全新的 1 层"。
-        // 适合"强度不叠、但可以刷新"的持续伤害。
         id: "burning",
         name: "灼烧",
         default_duration: 4.0,
@@ -86,6 +74,940 @@
         blocks_tags: [],
         on_apply:  [Log(text: "你被点燃了！")],
         on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(3.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+
+    // =====================================================================
+    //  ToME4 硬控族（**只读数据**能实现的最强控制）
+    //
+    //  在 ToME4 里，"眩晕 / 定身 / 沉默 / 缴械 / 沉睡"是五套各自独立的免疫与
+    //  抗性，还分 physical / mental / magical 三类 power 判定。这个引擎只有
+    //  一件事：`blocks_tags` 挡掉 7 个技能标签之一。
+    //
+    //  所以控制效果在数据侧的表达力 = "让对手的某一类技能不可用"。
+    //  这是**真的能打出来**的（技能栏会变空 / AI 选不出招），不是装饰。
+    //  代价：没有免疫、没有抗性判定、没有"睡了就醒"的触发。
+    // =====================================================================
+    (
+        // ToME4 `dazed`：比 stun 轻，被打一下就醒，但同样动不了。
+        id: "dazed",
+        name: "晕眩",
+        default_duration: 3.0,
+        stacking: Refresh,
+        modifiers: [(stat: "defense", delta: Literal(-4.0))],
+        blocks_tags: [MOVEMENT, COUNTER],
+        on_apply:  [Log(text: "目标被打得晕头转向。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `confused`：施法/技能失败。这里落到"封法术与瞬发"。
+        id: "confused",
+        name: "混乱",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [(stat: "cunning", delta: Literal(-5.0))],
+        blocks_tags: [SPELL, INSTANT],
+        on_apply:  [Log(text: "目标陷入了混乱。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `pinned`：不能移动。
+        id: "pinned",
+        name: "定身",
+        default_duration: 3.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [MOVEMENT],
+        on_apply:  [Log(text: "目标被钉在原地。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `silenced`：不能施法。
+        id: "silenced",
+        name: "沉默",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [SPELL],
+        on_apply:  [Log(text: "目标失去了声音。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `disarmed`：不能武器攻击。
+        id: "disarmed",
+        name: "缴械",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [(stat: "accuracy", delta: Literal(-8.0))],
+        blocks_tags: [ATTACK],
+        on_apply:  [Log(text: "目标的武器被打飞了。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `blinded`：命中大幅下降（这里用属性表达，因为引擎没有视野）。
+        id: "blinded",
+        name: "致盲",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "accuracy", delta: Literal(-10.0)),
+            (stat: "defense",  delta: Literal(-6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标眼前一片白。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `slow`：全局速度下降 → 这里落到移动与闪避（引擎没有速度属性）。
+        id: "slowed",
+        name: "迟缓",
+        default_duration: 5.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "agility", delta: Literal(-8.0)),
+            (stat: "defense", delta: Literal(-6.0)),
+        ],
+        blocks_tags: [MOVEMENT],
+        on_apply:  [Log(text: "目标慢了下来。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `frozen`：冰系硬控（stun 的冰版本）。用 `Ignore` 是因为
+        // 冰封不该被"再补一发"无限续（与 ToME4 的 freeze 免疫窗口同义）。
+        id: "frozen",
+        name: "冰冻",
+        default_duration: 3.0,
+        stacking: Ignore,
+        modifiers: [(stat: "agility", delta: Literal(-10.0))],
+        blocks_tags: [ATTACK, MOVEMENT, SPELL],
+        on_apply:  [Log(text: "目标被冻在冰里。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `feared`：恐惧 → 不能攻击（逃跑在引擎里=移动，这里封攻击）。
+        id: "feared",
+        name: "恐惧",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "strength", delta: Literal(-6.0)),
+            (stat: "accuracy", delta: Literal(-6.0)),
+        ],
+        blocks_tags: [ATTACK],
+        on_apply:  [Log(text: "目标被恐惧攫住。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `asleep`：最强控制（不能做任何事），且**不能被续**（Ignore）。
+        id: "asleep",
+        name: "沉睡",
+        default_duration: 4.0,
+        stacking: Ignore,
+        modifiers: [(stat: "defense", delta: Literal(-10.0))],
+        blocks_tags: [ATTACK, MOVEMENT, COUNTER, SPELL],
+        on_apply:  [Log(text: "目标沉沉睡去。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+
+    // =====================================================================
+    //  ToME4 持续伤害族
+    //
+    //  引擎的 `on_tick` **固定每秒结算一次**（`tick_statuses` 里的 1.0 秒累加器），
+    //  没有"每回合"的概念，也没有"总伤害 N 点分摊到 D 秒"的原语。
+    //  所以这里的每跳伤害是**写死的常量**：ToME4 里"随天赋等级成长"的那部分
+    //  在 DoT 上完全丢失（总伤害只能靠延长 duration 拉）。
+    // =====================================================================
+    (
+        // ToME4 `EFF_CUT` / `EFF_DEEP_WOUND` 的合并表达。`Stack(max: 5)` 对应
+        // ToME4 的"多层伤口各自计时"。
+        id: "bleeding",
+        name: "流血",
+        default_duration: 5.0,
+        stacking: Stack(max: 5),
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [Log(text: "伤口开始淌血。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(4.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `DamageType.FIREBURN`：法师的持续火焰。
+        id: "burning_tome",
+        name: "燃烧",
+        default_duration: 4.0,
+        stacking: Replace,
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [Log(text: "烈焰缠上了目标。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 的毒（`EFF_POISONED` / `EFF_NUMBING_POISON`），叠 4 层。
+        id: "poisoned",
+        name: "剧毒",
+        default_duration: 6.0,
+        stacking: Stack(max: 4),
+        modifiers: [(stat: "constitution", delta: Literal(-3.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "毒素在血管里扩散。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(5.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_DISEASE_*`：疾病族（叠加且同时削体质与意志）。
+        id: "diseased",
+        name: "疾病",
+        default_duration: 8.0,
+        stacking: Stack(max: 3),
+        modifiers: [
+            (stat: "constitution", delta: Literal(-4.0)),
+            (stat: "willpower",    delta: Literal(-4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标染上了疾病。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_DEEP_WOUND`：同时**降低治疗量** —— 引擎没有治疗系数，
+        // 所以这里只能退化成"更疼的流血"。
+        id: "deep_wound",
+        name: "深切伤口",
+        default_duration: 7.0,
+        stacking: Ignore,
+        modifiers: [(stat: "constitution", delta: Literal(-6.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "这一下切得很深。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(10.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // 炼金 / 酸系 DoT，顺带削护甲。
+        id: "acid_burn",
+        name: "酸蚀",
+        default_duration: 5.0,
+        stacking: Replace,
+        modifiers: [(stat: "armor", delta: Literal(-5.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "酸液咬穿了护甲。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // 死灵系的腐化 DoT：跳伤害 + 每跳抽灵魂（资源转移在数据侧要写成两条效果）。
+        id: "decaying",
+        name: "腐朽",
+        default_duration: 6.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [Log(text: "血肉开始腐朽。")],
+        on_tick:   [
+            ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target),
+            ModifyResource(pool: "soul", delta: Literal(0.0), who: Caster),
+        ],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // 暗影/冥火（ToME4 `DamageType.DARKFIRE`），跳伤害 + 削意志。
+        id: "darkfire",
+        name: "冥火",
+        default_duration: 5.0,
+        stacking: Replace,
+        modifiers: [(stat: "willpower", delta: Literal(-5.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "黑色的火苗舔了上来。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Neg(Literal(9.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+
+    // =====================================================================
+    //  ToME4 减益族（用 `modifiers` 削属性）
+    //
+    //  ToME4 的减益大多落在"抗性 / 豁免 / 速度 / 伤害输出"上，这些**都不是**
+    //  这个引擎的属性。所以能落地的减益只有两类：
+    //  (1) 削与 `Contest` 直接相关的属性（armor / defense / accuracy / 主属性）；
+    //  (2) 削资源池上限 —— 引擎**没有上限修改**，做不到。
+    //  下面这些就是 (1) 的全部可用落点。
+    // =====================================================================
+    (
+        // ToME4 `EFF_SUNDER_ARMOUR`：破甲。
+        id: "sundered_armour",
+        name: "破甲",
+        default_duration: 6.0,
+        stacking: Stack(max: 3),
+        modifiers: [(stat: "armor", delta: Literal(-8.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标的护甲被打裂了。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_SUNDER_ARMS`：卸力（削输出）。
+        id: "sundered_arms",
+        name: "卸力",
+        default_duration: 6.0,
+        stacking: Stack(max: 3),
+        modifiers: [
+            (stat: "strength", delta: Literal(-8.0)),
+            (stat: "accuracy", delta: Literal(-4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标的双手发麻。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_CRIPPLED`（重伤）：命中与闪避同时掉。
+        id: "crippled",
+        name: "重创",
+        default_duration: 8.0,
+        stacking: Ignore,
+        modifiers: [
+            (stat: "accuracy", delta: Literal(-10.0)),
+            (stat: "defense",  delta: Literal(-10.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标受了重伤。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_EXPOSED` / 破绽：让对手更疼（引擎没有易伤，只能削防御）。
+        id: "exposed",
+        name: "暴露破绽",
+        default_duration: 5.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "defense",  delta: Literal(-8.0)),
+            (stat: "armor",    delta: Literal(-5.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标的破绽露了出来。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Curse of Defenselessness`：诅咒系削豁免（这里落到闪避）。
+        id: "cursed_defenseless",
+        name: "无防备诅咒",
+        default_duration: 8.0,
+        stacking: Refresh,
+        modifiers: [(stat: "defense", delta: Literal(-14.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "诅咒让目标失去了防备。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Pacification Hex`：妖术——不能动也打不准。
+        id: "pacified",
+        name: "安抚妖术",
+        default_duration: 5.0,
+        stacking: Ignore,
+        modifiers: [
+            (stat: "accuracy", delta: Literal(-12.0)),
+            (stat: "agility",  delta: Literal(-6.0)),
+        ],
+        blocks_tags: [MOVEMENT],
+        on_apply:  [Log(text: "妖术缠住了目标。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_INTIMIDATED`：威吓（意志被压）。
+        id: "intimidated",
+        name: "威吓",
+        default_duration: 5.0,
+        stacking: Stack(max: 3),
+        modifiers: [
+            (stat: "willpower", delta: Literal(-8.0)),
+            (stat: "strength",  delta: Literal(-4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标被你的气势压住了。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        id: "weakened",
+        name: "虚弱",
+        default_duration: 6.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "strength",     delta: Literal(-6.0)),
+            (stat: "constitution", delta: Literal(-6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标虚弱了下去。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        id: "off_balance",
+        name: "重心不稳",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "defense", delta: Literal(-6.0)),
+            (stat: "armor",   delta: Literal(-6.0)),
+        ],
+        blocks_tags: [COUNTER],
+        on_apply:  [Log(text: "目标站不稳了。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_MARKED_FOR_DEATH` / `EFF_WEAKNESS`：被标记（易伤在引擎里
+        // 只能退化成降防）。
+        id: "mark_of_death",
+        name: "死亡印记",
+        default_duration: 8.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "defense", delta: Literal(-10.0)),
+            (stat: "armor",   delta: Literal(-10.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "死亡印记烙在了目标身上。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 破甲/脆化类（`EFF_BRITTLE`）——护甲几乎清零。
+        id: "brittle",
+        name: "脆化",
+        default_duration: 5.0,
+        stacking: Ignore,
+        modifiers: [(stat: "armor", delta: Literal(-16.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标的甲壳变得一碰就碎。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 削豁免（`saves` 在引擎里没有对应物 → 落到闪避与意志）。
+        id: "no_save",
+        name: "豁免尽失",
+        default_duration: 6.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "defense",   delta: Literal(-8.0)),
+            (stat: "willpower", delta: Literal(-8.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "目标的抵抗崩溃了。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 妖术（hex）通用壳：所有属性小幅下降。
+        id: "hexed",
+        name: "妖术缠身",
+        default_duration: 8.0,
+        stacking: Ignore,
+        modifiers: [
+            (stat: "strength",  delta: Literal(-4.0)),
+            (stat: "dexterity", delta: Literal(-4.0)),
+            (stat: "magic",     delta: Literal(-4.0)),
+            (stat: "willpower", delta: Literal(-4.0)),
+            (stat: "cunning",   delta: Literal(-4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "妖术渗进了目标的四肢百骸。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+
+    // =====================================================================
+    //  ToME4 增益族
+    //
+    //  ToME4 的增益有两种模式：`mode = "sustained"`（开关 + 每回合耗资源）
+    //  与定时 buff。引擎只有**定时状态**，所以：
+    //  - 定时 buff：一对一（`direct`）；
+    //  - sustain：用一个长时状态 + `on_tick` 扣资源近似，缺"主动关闭 /
+    //    资源耗尽自动关闭"（`approx`）；
+    //  - `mode = "passive"`（常驻被动）：**做不到**，没有无时长的状态。
+    // =====================================================================
+    (
+        // ToME4 `Thick Skin`（被动抗性）—— 用长时状态近似常驻。
+        id: "thick_skin",
+        name: "厚皮",
+        default_duration: 30.0,
+        stacking: Refresh,
+        modifiers: [(stat: "armor", delta: Literal(6.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你的皮肤变得坚硬。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `EFF_REGENERATION` / `Vitality`：每秒回血。
+        id: "regenerating",
+        name: "再生",
+        default_duration: 8.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [Log(text: "伤口开始快速愈合。")],
+        on_tick:   [ModifyResource(pool: "hp", delta: Literal(9.0), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Vitality`（被动回血）→ 长时状态 + 每跳回血 + 回体力。
+        id: "vitality",
+        name: "活力充沛",
+        default_duration: 20.0,
+        stacking: Refresh,
+        modifiers: [(stat: "constitution", delta: Literal(5.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你感到血气上涌。")],
+        on_tick:   [
+            ModifyResource(pool: "hp", delta: Literal(2.0), who: Target),
+            ModifyResource(pool: "stamina", delta: Literal(2.0), who: Target),
+        ],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Berserker`（sustain）：力量大涨、护甲下降，每跳扣体力。
+        id: "berserker",
+        name: "狂战士",
+        default_duration: 15.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "strength", delta: Literal(10.0)),
+            (stat: "armor",    delta: Literal(-6.0)),
+            (stat: "accuracy", delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你进入了狂战士姿态。")],
+        on_tick:   [ModifyResource(pool: "stamina", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [Log(text: "狂战士姿态解除。")],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Blinding Speed`（定时 buff）：这里落到敏捷与闪避。
+        id: "blinding_speed",
+        name: "迅捷如电",
+        default_duration: 6.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "agility",  delta: Literal(12.0)),
+            (stat: "defense",  delta: Literal(8.0)),
+            (stat: "accuracy", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "世界慢了下来。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Perfect Strike`（定时 buff）：命中拉满、暴击率（引擎没有暴击）。
+        id: "perfect_strike",
+        name: "致命姿态",
+        default_duration: 5.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "accuracy", delta: Literal(16.0)),
+            (stat: "strength", delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你找到了对手的破绽。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Shield Wall`（sustain）：护甲拉满、攻击下降，每跳扣体力。
+        id: "shield_wall",
+        name: "盾墙",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "armor",    delta: Literal(18.0)),
+            (stat: "accuracy", delta: Literal(-8.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你把盾举成了墙。")],
+        on_tick:   [ModifyResource(pool: "stamina", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Juggernaut`（定时 buff）。
+        id: "juggernaut",
+        name: "势不可挡",
+        default_duration: 8.0,
+        stacking: Ignore,
+        modifiers: [
+            (stat: "armor",        delta: Literal(14.0)),
+            (stat: "constitution", delta: Literal(10.0)),
+            (stat: "strength",     delta: Literal(8.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你变成了一台压路机。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Trance of Focus`（定时 buff）：意志/魔法上升。
+        id: "trance_focus",
+        name: "专注恍惚",
+        default_duration: 10.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "willpower", delta: Literal(10.0)),
+            (stat: "magic",     delta: Literal(6.0)),
+            (stat: "accuracy",  delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你的心神沉入专注。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Wild Growth`（被动）→ 长时状态。
+        id: "wild_growth",
+        name: "野性成长",
+        default_duration: 20.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "constitution", delta: Literal(6.0)),
+            (stat: "armor",        delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "自然的力量在你体内生长。")],
+        on_tick:   [
+            ModifyResource(pool: "hp", delta: Literal(2.0), who: Target),
+            // 失衡（equilibrium）向 0 回落：ToME4 的 equilibrium 就是"越低越好"。
+            ModifyResource(pool: "equilibrium", delta: Neg(Literal(4.0)), who: Target),
+        ],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Icy Skin`（sustain）：护甲 + 反伤（反伤做不到，只留防御面）。
+        id: "icy_skin",
+        name: "寒冰之肤",
+        default_duration: 15.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "armor",   delta: Literal(10.0)),
+            (stat: "defense", delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "寒冰覆住了你的皮肤。")],
+        on_tick:   [ModifyResource(pool: "equilibrium", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Arcane Power`（sustain）：法术强度（=魔法）上升，每跳扣法力。
+        id: "arcane_power",
+        name: "奥术强化",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "magic",    delta: Literal(12.0)),
+            (stat: "cunning",  delta: Literal(6.0)),
+            (stat: "accuracy", delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "奥术之力在你体内奔涌。")],
+        on_tick:   [ModifyResource(pool: "mana", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Essence of Speed`（sustain，全局速度）→ 只能落到敏捷。
+        id: "essence_speed",
+        name: "急速本质",
+        default_duration: 10.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "agility", delta: Literal(14.0)),
+            (stat: "defense", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "时间在你身边发烫。")],
+        on_tick:   [ModifyResource(pool: "mana", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Chant of Fortitude`（sustain，抗性）→ 落到护甲与体质。
+        id: "hymn_fortitude",
+        name: "坚毅圣歌",
+        default_duration: 15.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "armor",        delta: Literal(9.0)),
+            (stat: "constitution", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "圣歌在你周身回响。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Chant of Light`：光系伤害加成（引擎没有伤害类型）→ 落到魔法。
+        id: "chant_light",
+        name: "光明咏唱",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "magic",   delta: Literal(8.0)),
+            (stat: "accuracy", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "光在你手中凝聚。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Radiance`（光环，被动）→ 长时状态，每跳灼烧身边敌人做不到，
+        // 只能靠施法者每次行动时自己再打（见 skills.ron 的 `searing_sight`）。
+        id: "radiance",
+        name: "辉耀",
+        default_duration: 15.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "magic",     delta: Literal(6.0)),
+            (stat: "willpower", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你周身亮起圣光。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Temporal Form`：时间形态（抗性 / 速度）→ 落到属性。
+        id: "temporal_form",
+        name: "时间形态",
+        default_duration: 10.0,
+        stacking: Ignore,
+        modifiers: [
+            (stat: "agility",   delta: Literal(8.0)),
+            (stat: "armor",     delta: Literal(8.0)),
+            (stat: "willpower", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你的身体变得半透明。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Premonition`（抗性 + 豁免）→ 落到闪避与护甲。
+        id: "premonition",
+        name: "预感",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "defense", delta: Literal(10.0)),
+            (stat: "armor",   delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你预感到了接下来的攻击。")],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Kinetic Aura`（sustain，反伤）→ 反伤做不到，留属性面。
+        id: "kinetic_aura",
+        name: "动能光环",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "strength", delta: Literal(6.0)),
+            (stat: "armor",    delta: Literal(8.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "动能在你周围旋转。")],
+        on_tick:   [ModifyResource(pool: "psi", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Gloom`（sustain，光环削弱）→ 只能给自己加成做近似。
+        id: "gloom",
+        name: "幽暗",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "cunning",   delta: Literal(8.0)),
+            (stat: "willpower", delta: Literal(8.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "幽暗从你脚下蔓延开。")],
+        on_tick:   [ModifyResource(pool: "stamina", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Providence`（sustain）：免疫与回血 → 免疫做不到，留回血。
+        id: "providence",
+        name: "天佑",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [(stat: "willpower", delta: Literal(8.0))],
+        blocks_tags: [],
+        on_apply:  [Log(text: "天佑降临。")],
+        on_tick:   [
+            ModifyResource(pool: "hp", delta: Literal(4.0), who: Target),
+            ModifyResource(pool: "equilibrium", delta: Neg(Literal(3.0)), who: Target),
+        ],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Spellcraft`（sustain，法术暴击/穿透）→ 落到魔法与狡诈。
+        id: "spellcraft",
+        name: "法术精通",
+        default_duration: 12.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "magic",   delta: Literal(10.0)),
+            (stat: "cunning", delta: Literal(8.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "咒语的纹路在你眼前展开。")],
+        on_tick:   [ModifyResource(pool: "mana", delta: Neg(Literal(2.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Probability Travel`（sustain，穿墙移动）→ 位移做不到。
+        id: "probability_travel",
+        name: "概率旅者",
+        default_duration: 10.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "defense", delta: Literal(14.0)),
+            (stat: "agility", delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你踏进了概率的缝隙。")],
+        on_tick:   [ModifyResource(pool: "mana", delta: Neg(Literal(3.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // ToME4 `Inner Power`（被动，属性）→ 长时状态。
+        id: "inner_power",
+        name: "内在之力",
+        default_duration: 20.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "strength",  delta: Literal(6.0)),
+            (stat: "dexterity", delta: Literal(6.0)),
+            (stat: "magic",     delta: Literal(6.0)),
+            (stat: "willpower", delta: Literal(6.0)),
+            (stat: "cunning",   delta: Literal(6.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "内在之力被唤醒了。")],
+        on_tick:   [ModifyResource(pool: "psi", delta: Neg(Literal(1.0)), who: Target)],
+        on_expire: [],
+        on_remove: [],
+    ),
+
+    // =====================================================================
+    //  反应标记：引擎没有事件钩子，所以"暴击后 / 击杀后触发"只能落成
+    //  一个**短时标记状态**，再由别的技能用 `Requirement::InStatus` 去读。
+    //  这是 `impossible` 类机制里唯一能在纯数据侧"半个表达"的做法，
+    //  代价是必须由玩家/AI 再放一次技能（不会自动触发）。
+    // =====================================================================
+    (
+        id: "just_crit",
+        name: "刚出暴击",
+        default_duration: 3.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        id: "just_killed",
+        name: "刚击杀",
+        default_duration: 4.0,
+        stacking: Refresh,
+        modifiers: [],
+        blocks_tags: [],
+        on_apply:  [],
+        on_tick:   [],
+        on_expire: [],
+        on_remove: [],
+    ),
+    (
+        // 格挡/招架后的反击窗口（ToME4 `Riposte` 的钩子替代品）。
+        id: "on_guard",
+        name: "戒备",
+        default_duration: 3.0,
+        stacking: Refresh,
+        modifiers: [
+            (stat: "armor",   delta: Literal(4.0)),
+            (stat: "defense", delta: Literal(4.0)),
+        ],
+        blocks_tags: [],
+        on_apply:  [Log(text: "你摆出了反击架势。")],
+        on_tick:   [],
         on_expire: [],
         on_remove: [],
     ),

@@ -10,9 +10,9 @@
 //!
 //! | 认不认识 | 放哪 | 例 |
 //! |---|---|---|
-//! | 谁都不引用（只有 `Entity` / 词汇 ID / 自己的姊妹类型） | **L0** | `Action` / `ActiveStatus` / `DecisionSlot` / `Faction` |
+//! | 谁都不引用（只有 `Entity` / 词汇 ID / 自己的姊妹类型） | **L0** | `Action` / `ActiveStatus` / `InitiatedBy` / `Faction` |
 //! | 引用**公式簇**（`Requirement` / `Condition` / `Effect` / `Value`） | L1（跟着公式走） | `Skill` / `StatusDef` / `MonsterDef` |
-//! | 要**世界**才算得出来（多组件 / 资源 / `Time`） | L1（系统） | `tick_actions` / `monster_decide` / `apply_status_modifiers` |
+//! | 要**世界**才算得出来（多组件 / 资源 / `Time`） | L1（系统） | `tick_actions` / `commit_actions` / `apply_status_modifiers` |
 //!
 //! 这条判据的好处是**它会被编译器执行**：把 L0 的组件加一个引用 L1 的字段，
 //! 立刻多出一条 `atoms → behaviors` 的边——看得见，而不是悄悄长在 L1 里没人管。
@@ -26,9 +26,9 @@
 //! |---|---|
 //! | [`actor`] | 角色数值（池 / 属性 / 冷却 / 状态槽 / 能量）+ 三条正交轴（引擎角色 / 阵营 / 特性） |
 //! | [`vocabulary`] | 词汇原子：五种 `u16` 词汇 ID、`NameTable`、`UnknownName` |
-//! | [`action`] | 行动实例与它的关系（行动槽）、瞬发 / 待结算 / 威胁三个标记 |
+//! | [`grid`] | **格子坐标** `CellPos`：逻辑位置的唯一表示（零依赖，不引 `glam`） |
+//! | [`action`] | 行动实例与它的关系（**行动槽**）、三阶段、瞬发 / 待结算 / 威胁标记、交互语义（`Interrupts` / `SuperArmor`） |
 //! | [`status`] | 状态实例与它的关系（状态槽） |
-//! | [`decision`] | 决策槽：怪物"已经决定、还没出手"的那条决策 |
 //! | [`world`] | **体素世界**：`Voxel` / `Chunk` / `VoxelStore` / 噪声生成 / DDA 射线（纯数据 + 纯计算，**零系统**） |
 //!
 //! 详见 [docs/combat-design.md](../../../docs/combat-design.md)、
@@ -36,19 +36,19 @@
 
 pub mod action;
 pub mod actor;
-pub mod decision;
+pub mod grid;
 pub mod status;
 pub mod vocabulary;
 pub mod world;
 
 pub use action::{
-    Action, ActiveActions, CastingSkill, CastsSkill, InitiatedBy, ReadyToResolve, ResolveNow,
-    Threat, active_of,
+    Action, ActionPhase, ActiveActions, CastingSkill, CastsSkill, InitiatedBy, Interrupts,
+    ReadyToResolve, ResolveNow, SuperArmor, Threat, active_of,
 };
 pub use actor::{
     ActionEnergy, Actor, ActorPlugin, ActorRole, ActorState, ActorTags, AiDriven, Cooldowns,
     Faction, InputDriven, Monster, Player, Pool, Resources, StatModifier, Stats, actor_role,
 };
-pub use decision::{AiDecision, DecidedBy, DecisionSlot, SettledBy, Settles, decision_of};
+pub use grid::CellPos;
 pub use status::{ActiveStatus, AttachedTo, Statuses};
 pub use vocabulary::{ActorTagId, NameTable, ResourceId, SkillId, StatId, StatusId, UnknownName};

@@ -307,4 +307,2506 @@
             Log(text: "游商缩起身子，护住了自己的货箱。"),
         ],
     ),
+
+    // =====================================================================================
+    //  ToME4 天赋移植名册
+    //
+    //  规则：**只改数据，不改 Rust**。下面每一条都是 ToME4 里真实存在的天赋，
+    //  逐条翻译成这个引擎的 `Effect` 原语。翻译的**取舍**写在每条技能的注释里，
+    //  完整矩阵（每条机制 → direct / approx / impossible，以及引擎缺口）见
+    //  `assets/data/tome4-coverage.md`。
+    //
+    //  三条贯穿全篇的翻译约定（请务必先读）：
+    //
+    //  1. **天赋等级**：引擎没有天赋等级，用扮演"1..5 级"的属性 `level` 喂
+    //     `Scale{input: CasterStat("level"), anchors: Talent}`。低阶天赋用它缩放，
+    //     高阶天赋另外用 `Resource(pool: "stamina", min: N)` 当"点了几点"的门控。
+    //  2. **冷却**：`SkillRon` **没有** cooldown 字段，引擎把冷却自动设成
+    //     `duration.max(0.5)` 秒。所以这里的 `duration` 同时承担"释放耗时"与
+    //     "冷却近似"两个角色：大招给大 duration（例如 8.0 = 8 秒冷却）。
+    //     这是近似，不是等价 —— ToME4 的 `fixed_cooldown` 与减 CD 完全表达不了。
+    //  3. **范围**：目标解析只有 4 种（SelfOnly / ThreatSource / CurrentSelection /
+    //     NearestEnemy），**没有任何距离、方向、半径**。所以 ToME4 的 ball / cone /
+    //     beam / radius 一律塌缩成"打一个目标"，并在这条技能的注释里标 `[approx]`。
+    //     标 `[impossible]` 的机制（召唤 / 传送 / 位移 / 地形 / 常驻被动 / 事件钩子 /
+    //     护盾吸收池 / 免疫 / 冷却操纵 / 随机数）**这里一条都不写** —— 写出来也是假的。
+    // =====================================================================================
+
+    // -------------------------------------------------------------------------------------
+    //  technique/shield-offense（盾战系）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Shield Pummel`：两次盾击，每次命中后有几率眩晕。
+        // 翻译：Sequence 两次 Contest（引擎没有循环，次数写死）；眩晕按低概率的成功线表达。
+        id: "shield_pummel",
+        roles: [Player],
+        name: "盾牌猛击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 8.0),
+        ],
+        costs: [(pool: "stamina", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("accuracy"), Literal(6.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(10.0)), who: Target),
+                        Log(text: "第一下盾击砸实了。"),
+                    ]),
+                    (Fail, [Log(text: "第一下被卸开了。")]),
+                ],
+            )),
+            Contest((
+                attacker: Sum([CasterStat("accuracy"), Literal(4.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 4.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(10.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(2.0), who: Target),
+                        Log(text: "第二下正中面门，目标晕了。"),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target),
+                        Log(text: "第二下只擦到了。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Shield Slam`：单次重击 + 击退。击退（位移）做不到，保留伤害与眩晕。
+        id: "shield_slam",
+        roles: [Player],
+        name: "盾牌冲撞",
+        tags: [ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 12.0),
+        ],
+        costs: [(pool: "stamina", amount: 12.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), Literal(8.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 10.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(26.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(3.0), who: Target),
+                        Log(text: "盾牌把你整个人推了出去！"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(16.0)), who: Target),
+                        ApplyStatus(status: "dazed", duration: Literal(2.0), who: Target),
+                        Log(text: "冲撞结结实实。"),
+                    ]),
+                    (Fail, [Log(text: "冲撞落空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Repulsion`：把周围敌人推开并击晕。位移做不到 → 只留"晕眩 + 削闪避"。
+        id: "shield_repulsion",
+        roles: [Player],
+        name: "盾牌斥力",
+        tags: [ATTACK, GUARD],
+        duration: 6.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 16.0),
+        ],
+        costs: [(pool: "stamina", amount: 16.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), CasterStat("armor")]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "dazed", duration: Literal(4.0), who: Target),
+                        ApplyStatus(status: "off_balance", duration: Literal(4.0), who: Target),
+                        Log(text: "冲击波把目标震得站不稳。"),
+                    ]),
+                    (Fail, [Log(text: "冲击被硬扛了下来。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Shield Wall`（sustain）：长时状态 + 每跳扣体力，缺"主动关闭"。
+        id: "shield_wall",
+        roles: [Player],
+        name: "盾墙",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("shield_wall"),
+            Resource(pool: "stamina", min: 20.0),
+        ],
+        costs: [(pool: "stamina", amount: 20.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "shield_wall", duration: Literal(12.0), who: Caster),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  technique/2hweapon（双手武器系）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Stunning Blow`：命中则眩晕。
+        id: "stunning_blow",
+        roles: [Player],
+        name: "震荡打击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 10.0),
+        ],
+        costs: [(pool: "stamina", amount: 10.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), Literal(6.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 8.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(28.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(3.0), who: Target),
+                        Log(text: "重击砸得目标眼冒金星。"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(16.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(2.0), who: Target),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target),
+                        Log(text: "只是擦过。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Sunder Armour`：破甲。ToME4 是"打中后永久削甲到战斗结束"，
+        // 这里只能给一个有时长的 debuff（`sundered_armour` 叠 3 层）。
+        id: "sunder_armour",
+        roles: [Player],
+        name: "破甲击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 8.0),
+        ],
+        costs: [(pool: "stamina", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: CasterStat("accuracy"),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target),
+                        ApplyStatus(status: "sundered_armour", duration: Literal(6.0), who: Target),
+                        Log(text: "护甲被打裂了。"),
+                    ]),
+                    (Fail, [Log(text: "没能破开护甲。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Sunder Arms`：卸力（削输出）。
+        id: "sunder_arms",
+        roles: [Player],
+        name: "卸力击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 8.0),
+        ],
+        costs: [(pool: "stamina", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: CasterStat("accuracy"),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target),
+                        ApplyStatus(status: "sundered_arms", duration: Literal(6.0), who: Target),
+                        Log(text: "目标的双手被打得发麻。"),
+                    ]),
+                    (Fail, [Log(text: "没能打中手腕。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Berserker`（sustain）：长时状态 + 每跳扣体力。
+        id: "berserker",
+        roles: [Player],
+        name: "狂战士姿态",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("berserker"),
+            Resource(pool: "stamina", min: 24.0),
+        ],
+        costs: [(pool: "stamina", amount: 24.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "berserker", duration: Literal(15.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Bleeding Edge`（实际上在 dualweapon 树）：这里放在双手武器树做
+        // "重击 + 深层伤口"的综合表达。ToME4 的"流血按已损失生命百分比"做不到 → 固定跳伤。
+        id: "bleeding_edge",
+        roles: [Player],
+        name: "血刃",
+        tags: [ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 14.0),
+        ],
+        costs: [(pool: "stamina", amount: 14.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), Literal(4.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 8.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(22.0)), who: Target),
+                        ApplyStatus(status: "deep_wound", duration: Literal(7.0), who: Target),
+                        Log(text: "刀锋撕开了血肉，血止不住。"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(12.0)), who: Target),
+                        ApplyStatus(status: "bleeding", duration: Literal(5.0), who: Target),
+                        Log(text: "留下一道不浅的口子。"),
+                    ]),
+                    (Fail, [Log(text: "刀锋走空了。")]),
+                ],
+            )),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  technique/archery + sniper（远程系：引擎没有距离，全部按"当前选中目标"处理）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Steady Shot`：一次稳定射击。
+        id: "steady_shot",
+        roles: [Player],
+        name: "稳固射击",
+        tags: [ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 5.0),
+        ],
+        costs: [(pool: "stamina", amount: 5.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("dexterity"), Literal(8.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 12.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(24.0)), who: Target),
+                        ApplyStatus(status: "just_crit", duration: Literal(3.0), who: Caster),
+                        Log(text: "箭矢穿心而过！"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(14.0)), who: Target),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(4.0)), who: Target),
+                        Log(text: "箭矢偏了一点。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Pin Down`：命中则定身（并附流血）。
+        id: "pin_down",
+        roles: [Player],
+        name: "钉射",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 9.0),
+        ],
+        costs: [(pool: "stamina", amount: 9.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: CasterStat("accuracy"),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(9.0)), who: Target),
+                        ApplyStatus(status: "pinned", duration: Literal(3.0), who: Target),
+                        ApplyStatus(status: "bleeding", duration: Literal(4.0), who: Target),
+                        Log(text: "一箭把目标钉在了地上。"),
+                    ]),
+                    (Fail, [Log(text: "箭插进了地面。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Crippling Shot`：重伤（削命中/闪避）。ToME4 还有"被击中时
+        // 打断技能"，打断需要 `Interrupt`，这里也一并给出。
+        id: "crippling_shot",
+        roles: [Player],
+        name: "致残射击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 10.0),
+        ],
+        costs: [(pool: "stamina", amount: 10.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: CasterStat("accuracy"),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target),
+                        ApplyStatus(status: "crippled", duration: Literal(8.0), who: Target),
+                        // `Interrupt` 是引擎原语（清空目标行动槽），ToME4 的边缘机制正好对上。
+                        Interrupt(who: Target),
+                        Log(text: "箭矢切断了目标的动作。"),
+                    ]),
+                    (Fail, [Log(text: "没打中要害。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Fragmentation Shot`：把目标炸开（AoE + 流血）。范围做不到 → 单体 + 流血。
+        id: "fragmentation_shot",
+        roles: [Player],
+        name: "破片射击",
+        tags: [ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 14.0),
+        ],
+        costs: [(pool: "stamina", amount: 14.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("dexterity"), Literal(6.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(15.0)), who: Target),
+                        ApplyStatus(status: "bleeding", duration: Literal(6.0), who: Target),
+                        ApplyStatus(status: "slowed", duration: Literal(4.0), who: Target),
+                        Log(text: "破片把目标掀翻在地。"),
+                    ]),
+                    (Fail, [Log(text: "破片炸在了空处。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Multishot` / `Volley`：一次行动内连射。次数写死（引擎没有循环
+        // 也没有随机），所以"射 2~4 次随天赋等级"退化成固定 3 次。
+        id: "multishot",
+        roles: [Player],
+        name: "多重射击",
+        tags: [ATTACK],
+        duration: 6.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 18.0),
+        ],
+        costs: [(pool: "stamina", amount: 18.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Sequence([
+                Contest((
+                    attacker: CasterStat("accuracy"),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target)]),
+                        (Fail, [Log(text: "第一箭落空。")]),
+                    ],
+                )),
+                Contest((
+                    attacker: CasterStat("accuracy"),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target)]),
+                        (Fail, [Log(text: "第二箭落空。")]),
+                    ],
+                )),
+                Contest((
+                    attacker: CasterStat("accuracy"),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target)]),
+                        (Fail, [Log(text: "第三箭落空。")]),
+                    ],
+                )),
+            ]),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Relaxed Shot`：回体力。
+        id: "relaxed_shot",
+        roles: [Player],
+        name: "调息射击",
+        tags: [INSTANT],
+        duration: 0.0,
+        requirements: [NoActiveAction],
+        costs: [],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(
+                pool: "stamina",
+                delta: Scale((
+                    input: CasterStat("level"),
+                    low: 12.0,
+                    high: 40.0,
+                    curve: Power(0.6),
+                    anchors: Talent,
+                )),
+                who: Caster,
+            ),
+            Log(text: "你趁机调整了呼吸。"),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Aim`（sustain）：命中上升、攻速下降 → 只留命中。
+        id: "aim",
+        roles: [Player],
+        name: "瞄准",
+        tags: [GUARD],
+        duration: 2.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("perfect_strike"),
+            Resource(pool: "stamina", min: 12.0),
+        ],
+        costs: [(pool: "stamina", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "perfect_strike", duration: Literal(10.0), who: Caster),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  technique/dualweapon + flurry（双武器系）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Dual Strike`：两次攻击（主手 + 副手）。
+        id: "dual_strike",
+        roles: [Player],
+        name: "双武器打击",
+        tags: [ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 6.0),
+        ],
+        costs: [(pool: "stamina", amount: 6.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Sequence([
+                Contest((
+                    attacker: CasterStat("accuracy"),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(9.0)), who: Target)]),
+                        (Fail, [Log(text: "主手落空。")]),
+                    ],
+                )),
+                Contest((
+                    attacker: Sum([CasterStat("accuracy"), Literal(-3.0)]),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target)]),
+                        (Fail, [Log(text: "副手落空。")]),
+                    ],
+                )),
+            ]),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Flurry`：3 次攻击（随天赋等级 2..5）。次数写死。
+        id: "flurry",
+        roles: [Player],
+        name: "疾风连击",
+        tags: [ATTACK],
+        duration: 6.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 16.0),
+        ],
+        costs: [(pool: "stamina", amount: 16.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Sequence([
+                Contest((
+                    attacker: Sum([CasterStat("accuracy"), Literal(-4.0)]),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target)]),
+                        (Fail, [Log(text: "第一击落空。")]),
+                    ],
+                )),
+                Contest((
+                    attacker: Sum([CasterStat("accuracy"), Literal(-4.0)]),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target)]),
+                        (Fail, [Log(text: "第二击落空。")]),
+                    ],
+                )),
+                Contest((
+                    attacker: Sum([CasterStat("accuracy"), Literal(-4.0)]),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [
+                            ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target),
+                            ApplyStatus(status: "bleeding", duration: Literal(4.0), who: Target),
+                        ]),
+                        (Fail, [Log(text: "第三击落空。")]),
+                    ],
+                )),
+            ]),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Whirlwind`：周围一圈敌人。**范围做不到** → 塌缩成单体。
+        id: "whirlwind",
+        roles: [Player],
+        name: "旋风斩",
+        tags: [ATTACK, MOVEMENT],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 14.0),
+        ],
+        costs: [(pool: "stamina", amount: 14.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), CasterStat("agility")]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 6.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(22.0)), who: Target),
+                        ApplyStatus(status: "off_balance", duration: Literal(4.0), who: Target),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(13.0)), who: Target),
+                    ]),
+                    (Fail, [Log(text: "旋风扫空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Blinding Speed`：定时加速。引擎没有速度属性 → 落到敏捷/闪避。
+        id: "blinding_speed",
+        roles: [Player],
+        name: "迅捷如电",
+        tags: [INSTANT, MOVEMENT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 20.0),
+        ],
+        costs: [(pool: "stamina", amount: 20.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "blinding_speed", duration: Literal(6.0), who: Caster),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Perfect Strike`：一次行动内命中拉满。
+        id: "perfect_strike",
+        roles: [Player],
+        name: "完美打击",
+        tags: [GUARD],
+        duration: 2.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 12.0),
+        ],
+        costs: [(pool: "stamina", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "perfect_strike", duration: Literal(5.0), who: Caster),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  technique/combat-training + conditioning（体术与调息系）
+    // -------------------------------------------------------------------------------------
+    (
+        // [approx] ToME4 `Thick Skin`（**被动**）：长时状态近似常驻。
+        // 引擎没有"无时长的状态"，所以常驻被动只能这样近似（到时间要重开）。
+        id: "thick_skin",
+        roles: [Player],
+        name: "厚皮",
+        tags: [GUARD],
+        duration: 2.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("thick_skin"),
+            Resource(pool: "stamina", min: 10.0),
+        ],
+        costs: [(pool: "stamina", amount: 10.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "thick_skin", duration: Literal(30.0), who: Caster),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Vitality`（被动回血）→ 长时状态 + 每跳回血。
+        id: "vitality",
+        roles: [Player],
+        name: "生机",
+        tags: [HEAL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("vitality"),
+        ],
+        costs: [],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "vitality", duration: Literal(20.0), who: Caster),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Unflinching Resolve`：按几率解除负面状态。引擎没有随机，
+        // 所以改成"确定解除一条"（用 Conditional 选一条存在的再摘）。
+        id: "unflinching_resolve",
+        roles: [Player],
+        name: "不屈意志",
+        tags: [INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 12.0),
+        ],
+        costs: [(pool: "stamina", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            Conditional(
+                cond: HasStatus("stunned"),
+                then: RemoveStatus(status: "stunned", who: Caster),
+                else_: Conditional(
+                    cond: HasStatus("dazed"),
+                    then: RemoveStatus(status: "dazed", who: Caster),
+                    else_: Conditional(
+                        cond: HasStatus("pinned"),
+                        then: RemoveStatus(status: "pinned", who: Caster),
+                        else_: RemoveStatus(status: "slowed", who: Caster),
+                    ),
+                ),
+            ),
+            Log(text: "你咬紧牙关，把影响摆脱了。"),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Second Wind`：立刻回体力。
+        //
+        // 注意：这里**不能**用 `ResourceBelow` —— 它是 `Effect` 内部的
+        // `ConditionRon`（`Conditional{cond}` 才收它），技能前置需求那一栏
+        // （`RequirementRon`）只认 Resource / HasThreat / NoActiveAction /
+        // InStatus / NotInStatus / OffCooldown / TargetAlive / TargetIsEnemy /
+        // CasterHasTag 这九种。加载期会直接报 "Unexpected variant"。
+        id: "second_wind",
+        roles: [Player],
+        name: "第二口气",
+        tags: [INSTANT, HEAL],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("vitality"),
+        ],
+        costs: [],
+        targeting: SelfOnly,
+        effects: [
+            Conditional(
+                cond: ResourceBelow(pool: "stamina", ratio: 0.5),
+                then: ModifyResource(
+                    pool: "stamina",
+                    delta: Scale((
+                        input: CasterStat("level"),
+                        low: 30.0,
+                        high: 70.0,
+                        curve: Power(0.5),
+                        anchors: Talent,
+                    )),
+                    who: Caster,
+                ),
+                else_: ModifyResource(pool: "stamina", delta: Literal(10.0), who: Caster),
+            ),
+            Log(text: "你喘过一口气，重新站了起来。"),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Daunting Presence`（每回合压制身边敌人）：光环做不到 →
+        // 退化成"主动吼一声，压制当前目标"。
+        id: "daunting_presence",
+        roles: [Player],
+        name: "威压气势",
+        tags: [INSTANT],
+        duration: 3.0,
+        requirements: [NoActiveAction],
+        costs: [],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), CasterStat("willpower")]),
+                defender: TargetStat("willpower"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "intimidated", duration: Literal(5.0), who: Target),
+                        Log(text: "你的气势压得目标抬不起头。"),
+                    ]),
+                    (Fail, [Log(text: "对方没有被你吓住。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Blinding Speed` 的兄弟树 `Juggernaut`（大招，长冷却）：
+        // 用大 duration 近似长冷却（引擎的冷却 = duration）。
+        id: "juggernaut",
+        roles: [Player],
+        name: "势不可挡",
+        tags: [GUARD, INSTANT],
+        duration: 10.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 30.0),
+        ],
+        costs: [(pool: "stamina", amount: 30.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "juggernaut", duration: Literal(8.0), who: Caster),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  spell/arcane + fire + air + water + ice（法术系）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Manathrust`：奥术单体弹。
+        id: "manathrust",
+        roles: [Player],
+        name: "秘法冲击",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 6.0),
+        ],
+        costs: [(pool: "mana", amount: 6.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(8.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 10.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(30.0)), who: Target),
+                        Log(text: "秘法之力贯穿了目标！"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(18.0)), who: Target),
+                    ]),
+                    (Fail, [Log(text: "秘法冲击偏了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Flame`：火球 + 燃烧 DoT。
+        id: "flame",
+        roles: [Player],
+        name: "火焰",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 8.0),
+        ],
+        costs: [(pool: "mana", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(6.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(16.0)), who: Target),
+                        ApplyStatus(status: "burning_tome", duration: Literal(4.0), who: Target),
+                        Log(text: "火焰命中了目标。"),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(5.0)), who: Target),
+                        Log(text: "火舌只是舔了一下。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Fireflash`：半径 2 的爆炸。范围做不到 → 单体（但要标 approx）。
+        id: "fireflash",
+        roles: [Player],
+        name: "烈焰爆",
+        tags: [SPELL, ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 16.0),
+        ],
+        costs: [(pool: "mana", amount: 16.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(10.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 8.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(38.0)), who: Target),
+                        ApplyStatus(status: "burning_tome", duration: Literal(5.0), who: Target),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(24.0)), who: Target),
+                        ApplyStatus(status: "burning_tome", duration: Literal(3.0), who: Target),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target),
+                        Log(text: "爆炸没能包住目标。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Lightning`：贯穿直线（beam）。直线做不到 → 单体。
+        id: "lightning",
+        roles: [Player],
+        name: "闪电",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 10.0),
+        ],
+        costs: [(pool: "mana", amount: 10.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(8.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 6.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(32.0)), who: Target),
+                        ApplyStatus(status: "dazed", duration: Literal(2.0), who: Target),
+                        Log(text: "雷电炸响，目标麻了。"),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(19.0)), who: Target),
+                    ]),
+                    (Fail, [Log(text: "闪电从目标身边滑过。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Chain Lightning`：连锁跳跃。引擎没有"跳向下一个目标"→ 单体。
+        id: "chain_lightning",
+        roles: [Player],
+        name: "连锁闪电",
+        tags: [SPELL, ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 18.0),
+        ],
+        costs: [(pool: "mana", amount: 18.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(4.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(14.0)), who: Target),
+                        ApplyStatus(status: "dazed", duration: Literal(2.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "电弧散了。")]),
+                ],
+            )),
+            // "连锁"在数据侧的唯一表达：再追加一次（对同一目标的）电弧。
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(4.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(12.0)), who: Target),
+                    ]),
+                    (Fail, [Log(text: "第二次跳跃没找到落点。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Freeze`：高伤 + 冰冻（硬控）。
+        id: "freeze",
+        roles: [Player],
+        name: "冰冻",
+        tags: [SPELL, ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 14.0),
+        ],
+        costs: [(pool: "mana", amount: 14.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(6.0)]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(22.0)), who: Target),
+                        ApplyStatus(status: "frozen", duration: Literal(3.0), who: Target),
+                        Log(text: "目标被冻成了一块冰。"),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target),
+                        Log(text: "寒气只擦到了目标。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Ice Shards`：锥形。锥形做不到 → 单体。
+        id: "ice_shards",
+        roles: [Player],
+        name: "冰锥",
+        tags: [SPELL, ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 12.0),
+        ],
+        costs: [(pool: "mana", amount: 12.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(5.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(17.0)), who: Target),
+                        ApplyStatus(status: "slowed", duration: Literal(4.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "冰锥碎在了半空。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Tidal Wave`：锥形 + 击退。范围与位移都做不到 → 单体 + 迟缓。
+        id: "tidal_wave",
+        roles: [Player],
+        name: "潮汐",
+        tags: [SPELL, ATTACK],
+        duration: 6.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 20.0),
+        ],
+        costs: [(pool: "mana", amount: 20.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(8.0)]),
+                defender: TargetStat("strength"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(20.0)), who: Target),
+                        ApplyStatus(status: "slowed", duration: Literal(5.0), who: Target),
+                        ApplyStatus(status: "off_balance", duration: Literal(4.0), who: Target),
+                        Log(text: "巨浪把目标拍得东倒西歪。"),
+                    ]),
+                    (Fail, [Log(text: "浪头在目标面前散了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Arcane Reconstruction`：治疗。
+        id: "arcane_reconstruction",
+        roles: [Player],
+        name: "奥术重构",
+        tags: [SPELL, HEAL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 12.0),
+        ],
+        costs: [(pool: "mana", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(
+                pool: "hp",
+                delta: Scale((
+                    input: CasterStat("magic"),
+                    low: 30.0,
+                    high: 40.0,
+                    curve: Power(0.5),
+                    anchors: Stat,
+                )),
+                who: Caster,
+            ),
+            Log(text: "奥术之力缝合了你的伤口。"),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Arcane Eye` 的"看"做不到，但 `Arcane Power`（sustain）可以近似。
+        id: "arcane_power",
+        roles: [Player],
+        name: "奥术强化",
+        tags: [SPELL, GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("arcane_power"),
+            Resource(pool: "mana", min: 20.0),
+        ],
+        costs: [(pool: "mana", amount: 20.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "arcane_power", duration: Literal(12.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Essence of Speed`（sustain）：全局速度 → 敏捷近似。
+        id: "essence_of_speed",
+        roles: [Player],
+        name: "急速本质",
+        tags: [SPELL, GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("essence_speed"),
+            Resource(pool: "mana", min: 24.0),
+        ],
+        costs: [(pool: "mana", amount: 24.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "essence_speed", duration: Literal(10.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Flameshock`：范围眩晕。范围做不到 → 单体眩晕。
+        id: "flameshock",
+        roles: [Player],
+        name: "火焰震慑",
+        tags: [SPELL, ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 18.0),
+        ],
+        costs: [(pool: "mana", amount: 18.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(6.0)]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(14.0)), who: Target),
+                        ApplyStatus(status: "stunned", duration: Literal(3.0), who: Target),
+                        Log(text: "冲击波把目标震懵了。"),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target),
+                        Log(text: "火焰只是烫了一下。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Cleansing Flames`：净化解 debuff（引擎只能逐条摘）。
+        id: "cleansing_flames",
+        roles: [Player],
+        name: "净焰",
+        tags: [SPELL, HEAL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 10.0),
+        ],
+        costs: [(pool: "mana", amount: 10.0)],
+        targeting: SelfOnly,
+        effects: [
+            RemoveStatus(status: "burning_tome", who: Caster),
+            RemoveStatus(status: "poisoned", who: Caster),
+            RemoveStatus(status: "bleeding", who: Caster),
+            RemoveStatus(status: "diseased", who: Caster),
+            Log(text: "净焰洗掉了身上的污秽。"),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  spell/light + temporal + meta（光 / 时间 / 元魔法）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Searing Light`：光系单体伤害 + 致盲。
+        id: "searing_light",
+        roles: [Player],
+        name: "灼热圣光",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 9.0),
+        ],
+        costs: [(pool: "mana", amount: 9.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(5.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 8.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(26.0)), who: Target),
+                        ApplyStatus(status: "blinded", duration: Literal(5.0), who: Target),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(15.0)), who: Target),
+                        ApplyStatus(status: "blinded", duration: Literal(3.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "圣光被闪开了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Healing Light`：治疗。
+        id: "healing_light",
+        roles: [Player],
+        name: "治愈之光",
+        tags: [SPELL, HEAL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 10.0),
+        ],
+        costs: [(pool: "mana", amount: 10.0)],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(
+                pool: "hp",
+                delta: Scale((
+                    input: CasterStat("willpower"),
+                    low: 25.0,
+                    high: 35.0,
+                    curve: Power(0.5),
+                    anchors: Stat,
+                )),
+                who: Caster,
+            ),
+            Log(text: "温暖的光覆住了伤口。"),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Time Prison`：时间囚笼（硬控）。这里用沉睡表达"完全动不了"。
+        id: "time_prison",
+        roles: [Player],
+        name: "时间囚笼",
+        tags: [SPELL],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 20.0),
+        ],
+        costs: [(pool: "mana", amount: 20.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), CasterStat("willpower")]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "asleep", duration: Literal(4.0), who: Target),
+                        Log(text: "目标被关进了一瞬间里。"),
+                    ]),
+                    (Fail, [Log(text: "时间囚笼没能合拢。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Temporal Bolt`：时间弹。
+        id: "temporal_bolt",
+        roles: [Player],
+        name: "时间之矢",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 8.0),
+        ],
+        costs: [(pool: "mana", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(7.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(17.0)), who: Target),
+                        ApplyStatus(status: "slowed", duration: Literal(3.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "时间之矢错开了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Haste`：加速 → 敏捷/闪避。
+        id: "haste",
+        roles: [Player],
+        name: "加速",
+        tags: [SPELL, INSTANT, MOVEMENT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 14.0),
+        ],
+        costs: [(pool: "mana", amount: 14.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "blinding_speed", duration: Literal(8.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Spellcraft`（sustain）：法术暴击与穿透 → 魔法/狡诈近似。
+        id: "spellcraft",
+        roles: [Player],
+        name: "法术精通",
+        tags: [SPELL, GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("spellcraft"),
+            Resource(pool: "mana", min: 22.0),
+        ],
+        costs: [(pool: "mana", amount: 22.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "spellcraft", duration: Literal(12.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Temporal Shield`：吸收护盾。引擎**没有护盾池** →
+        // 只能给"受伤前的防御属性"当近似，真正的"先扣盾再扣血"做不到。
+        id: "temporal_shield",
+        roles: [Player],
+        name: "时间护盾",
+        tags: [SPELL, GUARD, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 18.0),
+        ],
+        costs: [(pool: "mana", amount: 18.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "premonition", duration: Literal(6.0), who: Caster),
+            Log(text: "一层薄薄的时间膜包住了你（引擎无护盾池，只提升防御）。"),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  corruption + cursed（堕落 / 诅咒系：活力与暗影）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Drain`：抽血（对目标伤害 + 给自己回血/回灵魂）。
+        id: "drain",
+        roles: [Player],
+        name: "吸取生命",
+        tags: [SPELL, ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 8.0),
+        ],
+        costs: [(pool: "vim", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(6.0)]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(16.0)), who: Target),
+                        // ToME4 的"吸血百分比"引擎没有 → 改成固定回血量。
+                        ModifyResource(pool: "hp", delta: Literal(8.0), who: Caster),
+                        ModifyResource(pool: "soul", delta: Literal(1.0), who: Caster),
+                        Log(text: "生命从目标身上流进了你体内。"),
+                    ]),
+                    (Fail, [Log(text: "抽吸落空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Blood Grasp`：伤害 + 吸血。
+        id: "blood_grasp",
+        roles: [Player],
+        name: "血握",
+        tags: [SPELL, ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 10.0),
+        ],
+        costs: [(pool: "vim", amount: 10.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(4.0)]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 6.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(30.0)), who: Target),
+                        ModifyResource(pool: "hp", delta: Literal(12.0), who: Caster),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(18.0)), who: Target),
+                        ModifyResource(pool: "hp", delta: Literal(7.0), who: Caster),
+                    ]),
+                    (Fail, [Log(text: "血手抓空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Blood Spray`：锥形。范围做不到 → 单体 + 流血。
+        id: "blood_spray",
+        roles: [Player],
+        name: "血液喷溅",
+        tags: [SPELL, ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 12.0),
+        ],
+        costs: [(pool: "vim", amount: 12.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(5.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(15.0)), who: Target),
+                        ApplyStatus(status: "bleeding", duration: Literal(6.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "血雾散在了空处。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Soul Rot`：疾病 + 持续伤害。
+        id: "soul_rot",
+        roles: [Player],
+        name: "灵魂腐朽",
+        tags: [SPELL, ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 14.0),
+        ],
+        costs: [(pool: "vim", amount: 14.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(3.0)]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(10.0)), who: Target),
+                        ApplyStatus(status: "diseased", duration: Literal(8.0), who: Target),
+                        Log(text: "衰朽爬满了目标的身体。"),
+                    ]),
+                    (Fail, [Log(text: "腐朽没有站住脚。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Epidemic`：疾病扩散（范围传染）。传染做不到 → 单体疾病（可叠）。
+        id: "epidemic",
+        roles: [Player],
+        name: "瘟疫",
+        tags: [SPELL, ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 16.0),
+        ],
+        costs: [(pool: "vim", amount: 16.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(2.0)]),
+                defender: TargetStat("constitution"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "diseased", duration: Literal(8.0), who: Target),
+                        ApplyStatus(status: "weakened", duration: Literal(6.0), who: Target),
+                        Log(text: "瘟疫在目标身上扎根。"),
+                    ]),
+                    (Fail, [Log(text: "目标扛住了瘟疫。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Curse of Defenselessness`：削闪避。
+        id: "curse_of_defenselessness",
+        roles: [Player],
+        name: "无防备诅咒",
+        tags: [SPELL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 6.0),
+        ],
+        costs: [(pool: "vim", amount: 6.0)],
+        targeting: CurrentSelection,
+        effects: [
+            ApplyStatus(status: "cursed_defenseless", duration: Literal(8.0), who: Target),
+            Log(text: "诅咒抽走了目标的防备。"),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Pacification Hex`：妖术（不能动 + 打不准）。
+        id: "pacification_hex",
+        roles: [Player],
+        name: "安抚妖术",
+        tags: [SPELL],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 10.0),
+        ],
+        costs: [(pool: "vim", amount: 10.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), CasterStat("cunning")]),
+                defender: TargetStat("willpower"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "pacified", duration: Literal(5.0), who: Target),
+                        Log(text: "妖术把目标锁在了原地。"),
+                    ]),
+                    (Fail, [Log(text: "妖术被意志弹开了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Pacification Hex` 的兄弟 `Curse of Death`：DoT 诅咒。
+        id: "curse_of_death",
+        roles: [Player],
+        name: "死亡诅咒",
+        tags: [SPELL],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 12.0),
+        ],
+        costs: [(pool: "vim", amount: 12.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(4.0)]),
+                defender: TargetStat("willpower"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "mark_of_death", duration: Literal(8.0), who: Target),
+                        ApplyStatus(status: "decaying", duration: Literal(6.0), who: Target),
+                        Log(text: "死亡的气息缠上了目标。"),
+                    ]),
+                    (Fail, [Log(text: "诅咒没有落下。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Invoke Darkness`：暗影单体伤害。
+        id: "invoke_darkness",
+        roles: [Player],
+        name: "唤起黑暗",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 9.0),
+        ],
+        costs: [(pool: "vim", amount: 9.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), Literal(7.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(18.0)), who: Target),
+                        ApplyStatus(status: "darkfire", duration: Literal(5.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "黑暗没有凝聚成型。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Dominate`：心灵支配（硬控）。
+        id: "dominate",
+        roles: [Player],
+        name: "心灵支配",
+        tags: [SPELL],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 12.0),
+        ],
+        costs: [(pool: "vim", amount: 12.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("cunning"), CasterStat("willpower")]),
+                defender: TargetStat("willpower"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "pinned", duration: Literal(4.0), who: Target),
+                        ApplyStatus(status: "crippled", duration: Literal(6.0), who: Target),
+                        Log(text: "你夺走了目标对身体的控制。"),
+                    ]),
+                    (Fail, [Log(text: "对方挣脱了你的支配。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Instill Fear`：恐惧（INTIMIDATED 家族）。
+        id: "instill_fear",
+        roles: [Player],
+        name: "植入恐惧",
+        tags: [SPELL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "vim", min: 8.0),
+        ],
+        costs: [(pool: "vim", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("cunning"), Literal(4.0)]),
+                defender: TargetStat("willpower"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "feared", duration: Literal(4.0), who: Target),
+                        ApplyStatus(status: "intimidated", duration: Literal(5.0), who: Target),
+                        Log(text: "目标被恐惧攫住了。"),
+                    ]),
+                    (Fail, [Log(text: "恐惧没有生根。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Feed`：吞噬（抽资源）。
+        id: "feed",
+        roles: [Player],
+        name: "吞噬",
+        tags: [SPELL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            HasThreat,
+            Resource(pool: "vim", min: 4.0),
+        ],
+        costs: [(pool: "vim", amount: 4.0)],
+        targeting: ThreatSource,
+        effects: [
+            ModifyResource(pool: "hp", delta: Neg(Literal(6.0)), who: Target),
+            ModifyResource(pool: "vim", delta: Literal(6.0), who: Caster),
+            Log(text: "你从目标身上撕下了一块。"),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  wild-gift（自然之赐系：失衡 equilibrium）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Nature's Touch`：治疗（ToME4 是治疗盟友或自己；引擎无盟友目标 → 自己）。
+        id: "natures_touch",
+        roles: [Player],
+        name: "自然之触",
+        tags: [HEAL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 8.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 8.0)],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(
+                pool: "hp",
+                delta: Scale((
+                    input: CasterStat("willpower"),
+                    low: 28.0,
+                    high: 38.0,
+                    curve: Power(0.5),
+                    anchors: Stat,
+                )),
+                who: Caster,
+            ),
+            Log(text: "自然的暖流抚过伤口。"),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Regeneration`（灌注 / 天赋）：持续回血。
+        id: "regeneration",
+        roles: [Player],
+        name: "再生",
+        tags: [HEAL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 10.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 10.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "regenerating", duration: Literal(8.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Slime Spit`：粘液弹（伤害 + 减速）。ToME4 还有"目标死亡时爆裂"（钩子做不到）。
+        id: "slime_spit",
+        roles: [Player],
+        name: "粘液喷吐",
+        tags: [ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 6.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 6.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("willpower"), Literal(4.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(12.0)), who: Target),
+                        ApplyStatus(status: "slowed", duration: Literal(4.0), who: Target),
+                        Log(text: "粘液糊住了目标。"),
+                    ]),
+                    (Fail, [Log(text: "粘液没喷到。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Fire Breath`：锥形吐息。范围做不到 → 单体。
+        id: "fire_breath",
+        roles: [Player],
+        name: "火焰吐息",
+        tags: [ATTACK],
+        duration: 5.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 16.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 16.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("constitution"), Literal(8.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(22.0)), who: Target),
+                        ApplyStatus(status: "burning_tome", duration: Literal(4.0), who: Target),
+                        Log(text: "吐息把目标裹进了火里。"),
+                    ]),
+                    (Fail, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(8.0)), who: Target),
+                        Log(text: "吐息偏了。"),
+                    ]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Web`：定身。
+        id: "web",
+        roles: [Player],
+        name: "蛛网",
+        tags: [INSTANT],
+        duration: 2.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 6.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 6.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("cunning"), Literal(4.0)]),
+                defender: TargetStat("strength"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ApplyStatus(status: "pinned", duration: Literal(4.0), who: Target),
+                        Log(text: "蛛网把目标罩在了原地。"),
+                    ]),
+                    (Fail, [Log(text: "蛛网被挣断了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Wild Growth`（被动）→ 长时状态。
+        id: "wild_growth",
+        roles: [Player],
+        name: "野性成长",
+        tags: [HEAL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("wild_growth"),
+            Resource(pool: "equilibrium", min: 12.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "wild_growth", duration: Literal(20.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Icy Skin`（sustain）。
+        id: "icy_skin",
+        roles: [Player],
+        name: "寒冰之肤",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("icy_skin"),
+            Resource(pool: "equilibrium", min: 14.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 14.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "icy_skin", duration: Literal(15.0), who: Caster),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Nature's Balance`：把失衡（equilibrium）压回 0。
+        // 引擎里 equilibrium 就是一个池，"压回 0"= `ModifyResource` 负值。
+        id: "natures_balance",
+        roles: [Player],
+        name: "自然平衡",
+        tags: [INSTANT],
+        duration: 0.0,
+        requirements: [NoActiveAction],
+        costs: [],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(pool: "equilibrium", delta: Neg(Literal(40.0)), who: Caster),
+            Log(text: "自然的平衡重新校准了。"),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  psionic（灵能系）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Mind Sear`：心灵单体伤害。
+        id: "mind_sear",
+        roles: [Player],
+        name: "心灵灼烧",
+        tags: [SPELL, ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "psi", min: 7.0),
+        ],
+        costs: [(pool: "psi", amount: 7.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("willpower"), Literal(6.0)]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(16.0)), who: Target),
+                        ApplyStatus(status: "confused", duration: Literal(4.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "心灵冲击被挡了回去。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Kinetic Leech`：抽灵能（资源转移）。
+        id: "kinetic_leech",
+        roles: [Player],
+        name: "动能汲取",
+        tags: [SPELL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            HasThreat,
+            Resource(pool: "psi", min: 4.0),
+        ],
+        costs: [(pool: "psi", amount: 4.0)],
+        targeting: ThreatSource,
+        effects: [
+            ModifyResource(pool: "hp", delta: Neg(Literal(7.0)), who: Target),
+            ModifyResource(pool: "psi", delta: Literal(8.0), who: Caster),
+            Log(text: "动能被你抽了回来。"),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Telekinetic Smash`：近战 + 状态。
+        id: "telekinetic_smash",
+        roles: [Player],
+        name: "念力猛击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "psi", min: 9.0),
+        ],
+        costs: [(pool: "psi", amount: 9.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("willpower"), CasterStat("accuracy")]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 8.0,
+                outcomes: [
+                    (Crit, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(26.0)), who: Target),
+                        ApplyStatus(status: "off_balance", duration: Literal(5.0), who: Target),
+                    ]),
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(15.0)), who: Target),
+                        ApplyStatus(status: "off_balance", duration: Literal(3.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "念力砸空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Trance of Focus`：定时自我强化。
+        id: "trance_of_focus",
+        roles: [Player],
+        name: "专注恍惚",
+        tags: [GUARD, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "psi", min: 12.0),
+        ],
+        costs: [(pool: "psi", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "trance_focus", duration: Literal(10.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Kinetic Aura`（sustain，反伤）→ 属性面近似。
+        id: "kinetic_aura",
+        roles: [Player],
+        name: "动能光环",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("kinetic_aura"),
+            Resource(pool: "psi", min: 16.0),
+        ],
+        costs: [(pool: "psi", amount: 16.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "kinetic_aura", duration: Literal(12.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Inner Power`（被动）→ 长时状态。
+        id: "inner_power",
+        roles: [Player],
+        name: "内在之力",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("inner_power"),
+            Resource(pool: "psi", min: 18.0),
+        ],
+        costs: [(pool: "psi", amount: 18.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "inner_power", duration: Literal(20.0), who: Caster),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  undeads（亡灵系：单体伤害与自愈）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Shadow Cold Touch`：寒冷单体伤害。
+        id: "shadow_cold_touch",
+        roles: [Player],
+        name: "暗影冰触",
+        tags: [ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 6.0),
+        ],
+        costs: [(pool: "stamina", amount: 6.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("strength"), CasterStat("magic")]),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(14.0)), who: Target),
+                        ApplyStatus(status: "slowed", duration: Literal(3.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "冰冷的触碰落空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Gnaw`：撕咬（伤害 + 流血）。
+        id: "gnaw",
+        roles: [Player],
+        name: "啃噬",
+        tags: [ATTACK],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 5.0),
+        ],
+        costs: [(pool: "stamina", amount: 5.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Contest((
+                attacker: CasterStat("strength"),
+                defender: TargetStat("armor"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(10.0)), who: Target),
+                        ApplyStatus(status: "bleeding", duration: Literal(5.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "咬空了。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Re-assemble`（构装体）：自愈。
+        id: "reassemble",
+        roles: [Player],
+        name: "重组",
+        tags: [HEAL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 8.0),
+        ],
+        costs: [(pool: "stamina", amount: 8.0)],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(pool: "hp", delta: Literal(24.0), who: Caster),
+            Log(text: "碎裂的部分重新拼合。"),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  misc / inscriptions（符文与灌注：引擎能表达的部分）
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Infusion: Regeneration`（铭文灌注）。
+        id: "infusion_regeneration",
+        roles: [Player],
+        name: "灌注：再生",
+        tags: [HEAL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 5.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 5.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "regenerating", duration: Literal(6.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Rune: Shielding`：吸收护盾。引擎没有护盾池 →
+        // 用短时防御增益近似（并在日志里明说）。
+        id: "rune_shielding",
+        roles: [Player],
+        name: "符文：护盾",
+        tags: [GUARD, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 12.0),
+        ],
+        costs: [(pool: "mana", amount: 12.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "premonition", duration: Literal(5.0), who: Caster),
+            Log(text: "符文亮起（引擎无吸收池，改为提升防御）。"),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Rune: Manasurge`：回法力（ToME4 还提升法力上限，上限做不到）。
+        id: "rune_manasurge",
+        roles: [Player],
+        name: "符文：法力涌动",
+        tags: [INSTANT, HEAL],
+        duration: 0.0,
+        requirements: [NoActiveAction],
+        costs: [],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(
+                pool: "mana",
+                delta: Scale((
+                    input: CasterStat("level"),
+                    low: 18.0,
+                    high: 50.0,
+                    curve: Power(0.5),
+                    anchors: Talent,
+                )),
+                who: Caster,
+            ),
+            Log(text: "法力从符文里涌出。"),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Rune: Wild`（净化）：引擎只能点名摘状态，做不到"按类别批量"。
+        id: "rune_wild",
+        roles: [Player],
+        name: "符文：野性",
+        tags: [INSTANT, HEAL],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "equilibrium", min: 4.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 4.0)],
+        targeting: SelfOnly,
+        effects: [
+            Conditional(
+                cond: HasStatus("frozen"),
+                then: RemoveStatus(status: "frozen", who: Caster),
+                else_: RemoveStatus(status: "silenced", who: Caster),
+            ),
+            Log(text: "野性之力冲散了束缚。"),
+        ],
+    ),
+
+    // -------------------------------------------------------------------------------------
+    //  celestial / chronomancy / cursed / uber 的可持续表达部分
+    // -------------------------------------------------------------------------------------
+    (
+        // [direct] ToME4 `Twilight`（圣光系）：把一种资源换成另一种。
+        // 这是纯粹的"改池"，引擎一对一能表达 —— 也是 `direct` 里最干净的一类。
+        id: "twilight",
+        roles: [Player],
+        name: "薄暮",
+        tags: [SPELL, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 10.0),
+        ],
+        costs: [(pool: "mana", amount: 10.0)],
+        targeting: SelfOnly,
+        effects: [
+            ModifyResource(pool: "vim", delta: Literal(10.0), who: Caster),
+            ModifyResource(pool: "psi", delta: Literal(6.0), who: Caster),
+            Log(text: "光与影在你掌心交换了位置。"),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Chant of Fortitude`（sustain）。
+        id: "chant_of_fortitude",
+        roles: [Player],
+        name: "坚毅圣歌",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("hymn_fortitude"),
+            Resource(pool: "mana", min: 18.0),
+        ],
+        costs: [(pool: "mana", amount: 18.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "hymn_fortitude", duration: Literal(15.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Searing Sight`（每回合灼烧视野内敌人）→ 光环做不到，
+        // 退化成"主动发射一道光"。
+        id: "searing_sight",
+        roles: [Player],
+        name: "灼目光辉",
+        tags: [SPELL, ATTACK, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 8.0),
+        ],
+        costs: [(pool: "mana", amount: 8.0)],
+        targeting: NearestEnemy,
+        effects: [
+            Contest((
+                attacker: Sum([CasterStat("magic"), CasterStat("willpower")]),
+                defender: TargetStat("defense"),
+                formula: Difference,
+                threshold: 0.0,
+                crit_margin: 0.0,
+                outcomes: [
+                    (Success, [
+                        ModifyResource(pool: "hp", delta: Neg(Literal(11.0)), who: Target),
+                        ApplyStatus(status: "blinded", duration: Literal(3.0), who: Target),
+                    ]),
+                    (Fail, [Log(text: "光只晃了一下。")]),
+                ],
+            )),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Providence`（sustain）：回血 + 净化。
+        id: "providence",
+        roles: [Player],
+        name: "天佑",
+        tags: [HEAL],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("providence"),
+            Resource(pool: "equilibrium", min: 15.0),
+        ],
+        costs: [(pool: "equilibrium", amount: 15.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "providence", duration: Literal(12.0), who: Caster),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Temporal Form`（prodigy）：定时强大 buff（`direct` 的一类）。
+        id: "temporal_form",
+        roles: [Player],
+        name: "时间形态",
+        tags: [SPELL, GUARD, INSTANT],
+        duration: 12.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "mana", min: 40.0),
+        ],
+        costs: [(pool: "mana", amount: 40.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "temporal_form", duration: Literal(10.0), who: Caster),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Gloom`（sustain 光环）。
+        id: "gloom",
+        roles: [Player],
+        name: "幽暗",
+        tags: [GUARD],
+        duration: 3.0,
+        requirements: [
+            NoActiveAction,
+            NotInStatus("gloom"),
+            Resource(pool: "stamina", min: 18.0),
+        ],
+        costs: [(pool: "stamina", amount: 18.0)],
+        targeting: SelfOnly,
+        effects: [
+            ApplyStatus(status: "gloom", duration: Literal(12.0), who: Caster),
+        ],
+    ),
+    (
+        // [direct] ToME4 `Coup de Grace` / 处决类：低血线斩杀。
+        // 这是 `Conditional{ResourceBelow}` 的**忠实**用法（引擎真的能读池占比）。
+        id: "coup_de_grace",
+        roles: [Player],
+        name: "致命一击",
+        tags: [ATTACK],
+        duration: 4.0,
+        requirements: [
+            NoActiveAction,
+            Resource(pool: "stamina", min: 16.0),
+        ],
+        costs: [(pool: "stamina", amount: 16.0)],
+        targeting: CurrentSelection,
+        effects: [
+            Conditional(
+                cond: ResourceBelow(pool: "hp", ratio: 0.25),
+                then: Sequence([
+                    ModifyResource(pool: "hp", delta: Neg(Literal(60.0)), who: Target),
+                    Log(text: "你抓住了那一瞬，一刀毙命！"),
+                ]),
+                else_: Contest((
+                    attacker: Sum([CasterStat("accuracy"), Literal(4.0)]),
+                    defender: TargetStat("defense"),
+                    formula: Difference,
+                    threshold: 0.0,
+                    crit_margin: 0.0,
+                    outcomes: [
+                        (Success, [
+                            ModifyResource(pool: "hp", delta: Neg(Literal(18.0)), who: Target),
+                            Log(text: "一刀砍进了肩膀。"),
+                        ]),
+                        (Fail, [Log(text: "处决落空了。")]),
+                    ],
+                )),
+            ),
+        ],
+    ),
+    (
+        // [approx] ToME4 `Counter Shot` / `Riposte` 类"反应式追击"：钩子做不到，
+        // 但引擎有 `InStatus` 门控 + `SpawnAction`，可以做成**手动**的连携：
+        // 刚出过暴击（`just_crit`）时，追加一次射击。
+        id: "counter_shot",
+        roles: [Player],
+        name: "反击射击",
+        tags: [ATTACK, COUNTER, INSTANT],
+        duration: 0.0,
+        requirements: [
+            NoActiveAction,
+            InStatus("just_crit"),
+            Resource(pool: "stamina", min: 8.0),
+        ],
+        costs: [(pool: "stamina", amount: 8.0)],
+        targeting: CurrentSelection,
+        effects: [
+            // `SpawnAction` 让"追加一个技能"成为数据可配的事（引擎唯一的连锁原语）。
+            SpawnAction(skill: "steady_shot", who: Caster),
+            RemoveStatus(status: "just_crit", who: Caster),
+            Log(text: "你顺着刚才那一下补了一箭。"),
+        ],
+    ),
 ]

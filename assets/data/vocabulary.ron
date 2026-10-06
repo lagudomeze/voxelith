@@ -1,34 +1,154 @@
 (
     resources: [
+        // ---- 原有四条（引擎的角色模板、怪物 AI、反制链都靠它们）----
         (id: "hp",       name: "生命", max: 100, regen: 0.0),
         (id: "mana",     name: "法力", max: 50,  regen: 1.0),
         (id: "action",   name: "行动", max: 1,   regen: 0.0, start_full: true),
         (id: "reaction", name: "反应", max: 3,   regen: 0.5),
+        // ---- ToME4 移植用的资源（R13：加一种资源只写在这里 + 在技能/状态里用上）----
+        //
+        // 引擎**没有"资源类型"这个概念**：体力 / 法力 / 失衡 / 灵魂 / 灵能在数据眼里
+        // 都是同一种东西（一个有上限、按秒自然回复的池）。区别全在内容这一侧：
+        // 谁写 `costs`、谁写 `requirements`、谁在状态 `on_tick` 里扣它。
+        //
+        // 代价（诚实记录）：自然回复是**全局**的（`PoolTemplate.regen` 按池名生效，
+        // 不分角色）。所以"法师每秒回 1 点法力"会被同池的每个角色共享。
+        (id: "stamina",     name: "体力", max: 100, regen: 1.0),
+        (id: "vim",         name: "活力", max: 50,  regen: 0.2),
+        (id: "equilibrium", name: "失衡", max: 100, regen: 3.0),
+        (id: "soul",        name: "灵魂", max: 10,  regen: 0.0),
+        (id: "psi",         name: "灵能", max: 60,  regen: 0.8),
     ],
     stats: [
+        // ---- 原有三条 ----
         (id: "strength", name: "力量"),
         (id: "armor",    name: "护甲"),
         (id: "agility",  name: "敏捷"),
+        // ---- ToME4 的六项主属性 + 战斗派生值 ----
+        //
+        // 属性在这个引擎里就是"名字 → 一个数"，没有公式、没有上限。
+        // 所以 ToME4 的 strength/dexterity/... 可以一对一搬过来，
+        // 而 accuracy / defense（ToME4 里由等级与属性算出来的战斗值）
+        // 在这里必须**显式写成一个属性**：它们是 `Contest` 的两端，
+        // 引擎不会替你从等级推导。
+        (id: "dexterity",    name: "灵巧身法"),
+        (id: "constitution", name: "体质"),
+        (id: "magic",        name: "魔法"),
+        (id: "willpower",    name: "意志"),
+        (id: "cunning",      name: "狡诈"),
+        (id: "accuracy",     name: "命中"),
+        (id: "defense",      name: "闪避"),
+        // ---- 两个"伪天赋等级" ----
+        //
+        // 引擎没有天赋树 / 天赋点 / 天赋等级（技能一学到就是满级）。
+        // ToME4 里几乎每个数字都随天赋等级成长，所以这里用**两个属性**顶上：
+        //
+        // - `level`：角色等级。喂给 `Scale{input: CasterStat("level"), anchors: Talent}`
+        //   就得到"1 级到 5 级"的成长曲线（低阶天赋按它缩放）。
+        // - `skill_rank`：伪天赋等级（1..5）。高阶天赋靠它表达"点满了才强"。
+        //
+        // 这两个名字是**约定**，不是引擎概念：它们只是属性，改角色模板就能改。
+        (id: "level",      name: "等级"),
+        (id: "skill_rank", name: "技能等级"),
     ],
     statuses: [
+        // ---- 原有六个（`Stacking` / `Formula` 的内容用例，别删）----
         (id: "guarding",  name: "格挡"),
         (id: "stunned",   name: "眩晕"),
         (id: "poison",    name: "中毒"),
         (id: "rage",      name: "狂暴"),
-        // 下面两个是 `Stacking::Ignore` / `Stacking::Replace` 的内容用例
-        // （见 `statuses.ron`）。**状态必须先在这里登记**，否则加载期直接报
-        // "unknown status name" —— 这是刻意的：名字解析只在加载期做一次。
         (id: "staggered", name: "踉跄"),
         (id: "burning",   name: "灼烧"),
+
+        // ---- ToME4 硬控族（blocks_tags 是引擎唯一"让对手不能做事"的手段）----
+        //
+        // `blocks_tags` 只能取 7 个引擎标签之一，所以"沉默只封法术、
+        // 缴械只封攻击"这种**按技能类别**的封锁只能落到标签粒度上。
+        (id: "dazed",         name: "晕眩"),
+        (id: "confused",      name: "混乱"),
+        (id: "pinned",        name: "定身"),
+        (id: "silenced",      name: "沉默"),
+        (id: "disarmed",      name: "缴械"),
+        (id: "blinded",       name: "致盲"),
+        (id: "slowed",        name: "迟缓"),
+        (id: "frozen",        name: "冰冻"),
+        (id: "feared",        name: "恐惧"),
+        (id: "asleep",        name: "沉睡"),
+        (id: "stunned_heavy", name: "重度眩晕"),
+
+        // ---- ToME4 持续伤害族（on_tick 固定每秒结算一次）----
+        (id: "bleeding",    name: "流血"),
+        (id: "burning_tome", name: "燃烧"),
+        (id: "poisoned",    name: "剧毒"),
+        (id: "diseased",    name: "疾病"),
+        (id: "deep_wound",  name: "深切伤口"),
+        (id: "acid_burn",   name: "酸蚀"),
+        (id: "decaying",    name: "腐朽"),
+        (id: "darkfire",    name: "冥火"),
+
+        // ---- ToME4 减益族（用 modifiers 削属性）----
+        (id: "sundered_armour",    name: "破甲"),
+        (id: "sundered_arms",      name: "卸力"),
+        (id: "crippled",           name: "重创"),
+        (id: "exposed",            name: "暴露破绽"),
+        (id: "cursed_defenseless", name: "无防备诅咒"),
+        (id: "pacified",           name: "安抚妖术"),
+        (id: "intimidated",        name: "威吓"),
+        (id: "weakened",           name: "虚弱"),
+        (id: "off_balance",        name: "重心不稳"),
+        (id: "mark_of_death",      name: "死亡印记"),
+        (id: "brittle",            name: "脆化"),
+        (id: "no_save",            name: "豁免尽失"),
+        (id: "hexed",              name: "妖术缠身"),
+
+        // ---- ToME4 增益族 ----
+        (id: "thick_skin",         name: "厚皮"),
+        (id: "regenerating",       name: "再生"),
+        (id: "vitality",           name: "活力充沛"),
+        (id: "berserker",          name: "狂战士"),
+        (id: "blinding_speed",     name: "迅捷如电"),
+        (id: "perfect_strike",     name: "致命姿态"),
+        (id: "shield_wall",        name: "盾墙"),
+        (id: "juggernaut",         name: "势不可挡"),
+        (id: "trance_focus",       name: "专注恍惚"),
+        (id: "wild_growth",        name: "野性成长"),
+        (id: "icy_skin",           name: "寒冰之肤"),
+        (id: "arcane_power",       name: "奥术强化"),
+        (id: "essence_speed",      name: "急速本质"),
+        (id: "hymn_fortitude",     name: "坚毅圣歌"),
+        (id: "chant_light",        name: "光明咏唱"),
+        (id: "radiance",           name: "辉耀"),
+        (id: "temporal_form",      name: "时间形态"),
+        (id: "premonition",        name: "预感"),
+        (id: "kinetic_aura",       name: "动能光环"),
+        (id: "gloom",              name: "幽暗"),
+        (id: "providence",         name: "天佑"),
+        (id: "spellcraft",         name: "法术精通"),
+        (id: "probability_travel", name: "概率旅者"),
+        (id: "inner_power",        name: "内在之力"),
+
+        // ---- "命中后附带的一次性标记" ----
+        //
+        // 引擎没有 on_hit 钩子，所以"暴击后触发 X"只能退化成一个短时状态，
+        // 靠随后的技能去读它（`Requirement::InStatus`）。
+        (id: "just_crit",   name: "刚出暴击"),
+        (id: "just_killed", name: "刚击杀"),
+        (id: "on_guard",    name: "戒备"),
     ],
     // 角色**特性**：跨阵营的性状，与 `faction` / `role` 是三条正交的轴。
     //
     // 它们是**词汇**而不是引擎枚举：加一种种族（"恶魔"、"植物"）只改这里 +
     // 在 `monsters.ron` 的 `traits` 里用上，**不动 Rust**。
     // 曾经它们是 `enum ActorTag { Undead, Construct, Beast }`，每加一种都要改引擎代码。
+    //
+    // ToME4 移植新增的三条：它们是**种族**在数据侧的唯一落点
+    // （`Requirement::CasterHasTag` 是目前唯一能读特性的门控）。
     tags: [
         (id: "undead",    name: "亡灵"),
         (id: "construct", name: "构装体"),
         (id: "beast",     name: "野兽"),
+        (id: "humanoid",  name: "人形"),
+        (id: "demon",     name: "恶魔"),
+        (id: "plant",     name: "植物"),
     ],
 )

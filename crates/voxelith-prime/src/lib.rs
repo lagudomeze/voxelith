@@ -15,8 +15,12 @@
 //! 详见 `docs/layers.md`、`docs/combat-design.md`、`docs/debugging.md`。
 
 pub mod actor_render;
+pub mod combat;
+pub mod combat_assets;
+pub mod combat_save;
 pub mod content;
 pub mod debug;
+pub mod ecosystem;
 pub mod presentation;
 pub mod save;
 pub mod ui_theme;

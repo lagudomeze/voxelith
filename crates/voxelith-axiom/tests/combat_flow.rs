@@ -17,12 +17,13 @@ use bevy_state::state::State;
 use bevy_time::{Time, Virtual};
 
 use voxelith_axiom::atoms::actor::{Faction, Resources};
-use voxelith_axiom::behaviors::action::{Action, ActiveActions, CastRequest};
+use voxelith_axiom::behaviors::action::{Action, ActionPhase, ActiveActions, CastRequest};
 use voxelith_axiom::behaviors::content::SkillId;
 use voxelith_axiom::behaviors::effect::Effect;
-use voxelith_axiom::behaviors::phase::{AvailableSkills, CombatPhase, PendingThreat};
+use voxelith_axiom::behaviors::phase::{AvailableSkills, CombatPhase};
 use voxelith_axiom::behaviors::requirement::{Requirement, Targeting};
 use voxelith_axiom::behaviors::skill::{Skill, SkillTags};
+use voxelith_axiom::behaviors::threat::{Threat, ThreatWindow};
 
 use support::*;
 
@@ -39,6 +40,7 @@ fn target_is_enemy_resolves_through_faction() {
         tags: SkillTags::ATTACK,
         roles: Vec::new(),
         duration: 0.0,
+        recovery: 0.0,
         requirements: vec![Requirement::TargetIsEnemy],
         costs: Vec::new(),
         targeting: Targeting::NearestEnemy,
@@ -78,6 +80,7 @@ fn availability_is_recomputed_while_time_is_frozen() {
         tags: SkillTags::ATTACK,
         roles: Vec::new(),
         duration: 0.0,
+        recovery: 0.0,
         requirements: vec![Requirement::TargetIsEnemy],
         costs: Vec::new(),
         targeting: Targeting::NearestEnemy,
@@ -333,21 +336,31 @@ fn pending_threat_opens_the_counter_window() {
         tags: SkillTags::COUNTER,
         roles: Vec::new(),
         duration: 0.0,
+        recovery: 0.0,
         requirements: vec![voxelith_axiom::behaviors::requirement::Requirement::HasThreat],
         costs: Vec::new(),
         targeting: Targeting::ThreatSource,
         effects: Vec::new(),
     });
-    // 威胁行动必须带 `Threat` 标记：`monster_decide` 每帧会清掉"已经不存在 / 没标记"的挂起威胁。
+    // 威胁行动是**真的行动**：窗口的存活对账只认带 `Action` 的实体（否则会被当场剔掉）。
     let threat_action = app
         .world_mut()
-        .spawn(voxelith_axiom::behaviors::monster::Threat)
+        .spawn((
+            Action {
+                phase: ActionPhase::WindUp,
+                elapsed: 0.0,
+                duration: 30.0,
+                target: None,
+            },
+            voxelith_axiom::behaviors::monster::Threat,
+        ))
         .id();
 
     // 玩家**不空闲**：真的放一个持续行动进槽（反制窗口只在"玩家正忙"时才有意义——
     // 空槽时相位优先走"等输入"，见 docs/combat-design.md §6 的判据表）。
     app.world_mut().spawn((
         Action {
+            phase: ActionPhase::WindUp,
             elapsed: 0.0,
             duration: 30.0,
             target: None,
@@ -363,11 +376,13 @@ fn pending_threat_opens_the_counter_window() {
     );
 
     // 有威胁 → 反击可用 → 反制窗口。
-    app.world_mut().insert_resource(PendingThreat {
-        action: Some(threat_action),
-        source: None,
-        target: Some(player),
+    let mut window = ThreatWindow::default();
+    window.push(Threat {
+        action: threat_action,
+        source: threat_action,
+        target: player,
     });
+    app.world_mut().insert_resource(window);
     app.update();
     app.update();
     assert_eq!(
@@ -377,7 +392,7 @@ fn pending_threat_opens_the_counter_window() {
     );
 
     // 威胁清掉 → 反击不可用 → 回到流动。
-    app.world_mut().insert_resource(PendingThreat::default());
+    app.world_mut().insert_resource(ThreatWindow::default());
     app.update();
     app.update();
     assert_eq!(

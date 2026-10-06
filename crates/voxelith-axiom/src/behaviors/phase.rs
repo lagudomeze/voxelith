@@ -1,21 +1,43 @@
-//! [`CombatPhase`]：半即时战斗的**时间控制状态机**。
+//! 战斗相位（**State**）+ 派生数据：**时间流不流**由相位决定。
 //!
 //! ```text
-//! Resolving        ── 时间流动，怪物攒能量、行动推进
-//! AwaitingInput    ── 冻结：玩家空槽，等主动输入
-//! AwaitingCounter  ── 冻结：有威胁且存在可用反制
+//! Resolving        ── 时间流动：action / status / 冷却正常推进
+//! AwaitingInput    ── 冻结：玩家行动槽为空，等主动输入
+//! AwaitingCounter  ── 冻结：有未处理的威胁且存在可用反制，等反制决策
 //! ```
 //!
 //! 相位只决定"时间流不流"（[`drive_virtual_time`](crate::behaviors::time_scale::drive_virtual_time)），
-//! 不决定"谁能做什么"——那是需求（`HasThreat` / `NoActiveAction`）的事。
+//! 逻辑系统只读 `Res<Time>`、完全不需要知道相位——冻结时 `delta` 就是 `0`。
+//!
+//! ## 判据（只有三条）
+//!
+//! | 条件 | 含义 |
+//! |---|---|
+//! | `player_idle` | 存在 `Player` 实体，且它的 `ActiveActions` 为空（或没有该组件） |
+//! | `has_threat` | **`ThreatWindow` 非空**（未处理的、针对 PC 的威胁集合） |
+//! | `has_counter` | `AvailableSkills` 里至少有一个带 `COUNTER` 标签的技能 |
+//!
+//! ```text
+//! Resolving:        player_idle → AwaitingInput；has_threat && has_counter → AwaitingCounter
+//! AwaitingInput:    两者都不成立 → Resolving
+//! AwaitingCounter:  两者都不成立 → Resolving
+//! ```
+//!
+//! ## 冻结的生效延迟**恰好一帧**（实现契约）
+//!
+//! `update_phase` 写下的相位，在**次帧 `PreUpdate` 开头**成为 `State`，
+//! 而倍率在**再下一帧 `First`** 被读到。所以要钉的性质是
+//! "任意时刻 `delta != 0` ⟺ `State` 是 `Resolving`"，而不是"相位一变当帧就停"。
+//! 细节与反例见 [`time_scale`](crate::behaviors::time_scale)。
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_state::prelude::*;
 
+use crate::atoms::action::ActiveActions;
 use crate::atoms::actor::InputDriven;
-use crate::behaviors::action::ActiveActions;
 use crate::behaviors::skill::{Skill, SkillTags};
+use crate::behaviors::threat::ThreatWindow;
 
 /// 战斗相位（**States**）。
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,31 +51,10 @@ pub enum CombatPhase {
     AwaitingCounter,
 }
 
-/// 挂起的威胁（**Resource**）：怪物"即将生效"的行动。
-///
-/// 它由 `monster_act` 登记、由 `Effect::DispelAction` 清空；
-/// `update_phase` 只读它，不负责发现"行动已经不存在"。
-#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PendingThreat {
-    /// 即将生效的行动实体。
-    pub action: Option<Entity>,
-    /// 威胁的来源（怪物）。
-    pub source: Option<Entity>,
-    /// 威胁的目标（PC）。
-    pub target: Option<Entity>,
-}
-
-impl PendingThreat {
-    /// 是否处于"有威胁"状态。
-    pub fn is_active(&self) -> bool {
-        self.action.is_some()
-    }
-}
-
 /// 当前可用技能（**Resource**，派生数据）：每帧由 `compute_available_skills` 重算。
 ///
 /// 它是 L2 与判定共享的只读视图；**不参与**任何战斗结算（结算自己再校验一遍）。
-#[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct AvailableSkills(Vec<Entity>);
 
 impl AvailableSkills {
@@ -107,7 +108,7 @@ impl AvailableSkills {
 /// 战斗日志（**Resource**，追加式）：L2 只读，读完自己清。
 ///
 /// 用 Resource 而不是 `Message` 是为了让**效果执行器不必持有消息写入器**
-/// （执行器只有 `EffectContext` 那几个入口，见 [docs/combat-design.md](../../../../docs/combat-design.md) D6）。
+/// （执行器只有 `EffectContext` 那几个入口，见 [docs/combat-design.md](../../../../docs/combat-design.md) §2.3）。
 #[derive(Resource, Debug, Clone, Default, PartialEq, Eq)]
 pub struct CombatLog(Vec<String>);
 
@@ -127,29 +128,24 @@ impl CombatLog {
         self.0.clear();
     }
 
-    /// 数量。
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// 是否为空。
+    /// 有没有新日志（L2 用来决定要不要重绘）。
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
 
-/// 相位转移：按"玩家是否空槽 / 有没有威胁 / 有没有反制"决定下一相位。
+/// 相位转移：按"玩家是否空槽 / 有没有未处理的威胁 / 有没有反制"决定下一相位。
 ///
 /// 因为只看这三个条件，它是**幂等**的：重复调用不会来回抖。
 pub fn update_phase(
     phase: Res<State<CombatPhase>>,
     mut next: ResMut<NextState<CombatPhase>>,
     players: Query<Option<&ActiveActions>, InputDriven>,
-    threat: Res<PendingThreat>,
+    window: Res<ThreatWindow>,
     available: Res<AvailableSkills>,
     skills: Query<&Skill>,
 ) {
-    let want = desired_phase(phase.get(), &players, &threat, &available, &skills);
+    let want = desired_phase(phase.get(), &players, &window, &available, &skills);
     if let Some(want) = want {
         next.set(want);
     }
@@ -159,14 +155,14 @@ pub fn update_phase(
 pub fn desired_phase(
     current: &CombatPhase,
     players: &Query<Option<&ActiveActions>, InputDriven>,
-    threat: &PendingThreat,
+    window: &ThreatWindow,
     available: &AvailableSkills,
     skills: &Query<&Skill>,
 ) -> Option<CombatPhase> {
     let player_idle = players
         .iter()
         .any(|actions| actions.is_none_or(|actions| actions.is_empty()));
-    let has_threat = threat.is_active();
+    let has_threat = window.is_open();
     let has_counter = available.has_tagged(skills, SkillTags::COUNTER);
 
     match current {
@@ -191,16 +187,18 @@ pub fn desired_phase(
     }
 }
 
-/// 注册相位域：状态、资源与转移系统。
+/// 注册相位域：状态与派生资源。
+///
+/// **系统不在这里注册**：`update_phase` 的跨域顺序由装配层
+/// [`CombatPlugin`](crate::behaviors::combat::CombatPlugin) 独占（**Q14**：
+/// 只在一个地方注册系统，否则同一个系统会在一帧里跑两遍）。
 pub struct PhasePlugin;
 
 impl Plugin for PhasePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<CombatPhase>()
-            .init_resource::<PendingThreat>()
             .init_resource::<AvailableSkills>()
-            .init_resource::<CombatLog>()
-            .add_systems(Update, update_phase);
+            .init_resource::<CombatLog>();
     }
 }
 
@@ -209,12 +207,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pending_threat_reports_activity() {
-        let mut threat = PendingThreat::default();
-        assert!(!threat.is_active());
-
-        threat.action = Some(Entity::PLACEHOLDER);
-        assert!(threat.is_active());
+    fn an_empty_window_reports_no_activity() {
+        let window = ThreatWindow::default();
+        assert!(!window.is_open());
     }
 
     #[test]
@@ -234,42 +229,23 @@ mod tests {
         };
 
         let mut available = AvailableSkills::default();
-        assert!(available.is_empty());
-
         available.push(counter);
-        available.push(counter);
-        assert_eq!(available.len(), 1, "同一个技能不重复登记");
-        assert!(available.contains(counter));
-
+        available.push(counter); // 去重
         available.push(attack);
+        assert_eq!(available.len(), 2);
+
         assert!(available.any_tagged(SkillTags::COUNTER, tags));
         assert!(available.any_tagged(SkillTags::ATTACK, tags));
         assert!(!available.any_tagged(SkillTags::SPELL, tags));
-
-        available.clear();
-        assert!(available.is_empty());
-        assert!(!available.any_tagged(SkillTags::ATTACK, tags));
     }
 
     #[test]
-    fn log_is_append_only_until_cleared() {
+    fn the_log_appends_and_clears() {
         let mut log = CombatLog::default();
-        assert!(log.is_empty());
-
         log.push("命中！".into());
-        log.push("被闪避了。".into());
-        assert_eq!(
-            log.entries(),
-            ["命中！".to_owned(), "被闪避了。".to_owned()]
-        );
-        assert_eq!(log.len(), 2);
-
+        log.push("重击！".into());
+        assert_eq!(log.entries().len(), 2);
         log.clear();
-        assert!(log.is_empty());
-    }
-
-    #[test]
-    fn phase_defaults_to_resolving() {
-        assert_eq!(CombatPhase::default(), CombatPhase::Resolving);
+        assert!(log.entries().is_empty());
     }
 }

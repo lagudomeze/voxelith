@@ -1,0 +1,110 @@
+// **角色定义**（新栈）——旧 `players.ron` / `monsters.ron` 的继任者。
+//
+// 与 `attributes.ron` 的分工（**这是关键的一条**）：
+//
+//   `attributes.ron`  全局**定义**：词汇表、派生表达式（`MaxHealth = Constitution * 10`）、
+//                     每秒回复（`*Regen`）。
+//   `actors.ron`      每个角色**自己的数**：主属性 + 资源的当前值。
+//
+// ⚠️ **两边不许写同一个名字**。理由不是洁癖：gauge 的 `ModifierSet::add` 是**累加**
+// （`+=`），所以"全局写 Strength 10、角色再写 12"得到的是 **22**，不是覆盖。
+// 加载期会拦住这种写法（见 `abilities::actors`）。
+//
+// 数值对齐的诚实记录：
+//   · 玩家沿用**原来 `attributes.ron` 里的演示值**（strength 10 / armor 3 / health 100 /
+//     action 3 / reaction 1）。旧 `players.ron` 写的是 strength 12 / armor 4 / action 1；
+//     那些数字等"池定义与派生公式整体对齐"时再统一——现在改会牵连一批已钉住的伤害断言。
+//   · 怪物的数字直接来自旧 `monsters.ron`（哥布林 hp 30 → 这里 60，因为上限由
+//     `constitution 6` 派生出来，写满血更直观）。
+//
+// **还没迁**：`role`（Player / Monster）/ `faction` / `ai`（技能选择与权重）/
+// `energy_rate` / `traits`（种族标签）——新栈里还没有对应机制，等 AI 与阵营迁过来时补。
+[
+    (
+        id: "player",
+        name: "冒险者",
+        attributes: [
+            (name: "Strength",     literal: 10.0),
+            (name: "Dexterity",    literal: 8.0),
+            (name: "Constitution", literal: 10.0),
+            (name: "Magic",        literal: 10.0),
+            (name: "Willpower",    literal: 10.0),
+            (name: "Cunning",      literal: 8.0),
+            (name: "Accuracy",     literal: 10.0),
+            (name: "Defense",      literal: 10.0),
+            (name: "Armor",        literal: 3.0),
+            (name: "Agility",      literal: 8.0),
+            (name: "Level",        literal: 1.0),
+            (name: "SkillRank",    literal: 1.0),
+
+            (name: "Health",       literal: 100.0),
+            (name: "Mana",         literal: 50.0),
+            (name: "Action",       literal: 3.0),
+            (name: "Reaction",     literal: 1.0),
+            (name: "Stamina",      literal: 100.0),
+            (name: "Vim",          literal: 50.0),
+            (name: "Equilibrium",  literal: 100.0),
+            (name: "Soul",         literal: 10.0),
+            (name: "Psi",          literal: 60.0),
+        ],
+    ),
+    (
+        id: "goblin",
+        name: "哥布林",
+        // 旧 `monsters.ron`：hp 30 / strength 6 / armor 2 / agility 5。
+        // 上限由派生式算出来（`constitution 6 ⇒ MaxHealth 60`），所以这里写满血。
+        attributes: [
+            (name: "Strength",     literal: 6.0),
+            (name: "Dexterity",    literal: 6.0),
+            (name: "Constitution", literal: 6.0),
+            (name: "Magic",        literal: 3.0),
+            (name: "Willpower",    literal: 5.0),
+            (name: "Cunning",      literal: 8.0),
+            (name: "Accuracy",     literal: 8.0),
+            (name: "Defense",      literal: 8.0),
+            (name: "Armor",        literal: 2.0),
+            (name: "Agility",      literal: 5.0),
+            (name: "Level",        literal: 1.0),
+            (name: "SkillRank",    literal: 1.0),
+
+            (name: "Health",       literal: 60.0),
+            (name: "Mana",         literal: 0.0),
+            (name: "Action",       literal: 3.0),
+            (name: "Reaction",     literal: 0.0),
+            (name: "Stamina",      literal: 40.0),
+            (name: "Vim",          literal: 0.0),
+            (name: "Equilibrium",  literal: 0.0),
+            (name: "Soul",         literal: 0.0),
+            (name: "Psi",          literal: 0.0),
+        ],
+    ),
+    (
+        id: "troll",
+        name: "巨魔",
+        // 比哥布林厚得多：`constitution 12 ⇒ MaxHealth 120`。
+        attributes: [
+            (name: "Strength",     literal: 14.0),
+            (name: "Dexterity",    literal: 5.0),
+            (name: "Constitution", literal: 12.0),
+            (name: "Magic",        literal: 2.0),
+            (name: "Willpower",    literal: 8.0),
+            (name: "Cunning",      literal: 4.0),
+            (name: "Accuracy",     literal: 9.0),
+            (name: "Defense",      literal: 6.0),
+            (name: "Armor",        literal: 6.0),
+            (name: "Agility",      literal: 4.0),
+            (name: "Level",        literal: 3.0),
+            (name: "SkillRank",    literal: 2.0),
+
+            (name: "Health",       literal: 120.0),
+            (name: "Mana",         literal: 0.0),
+            (name: "Action",       literal: 3.0),
+            (name: "Reaction",     literal: 0.0),
+            (name: "Stamina",      literal: 100.0),
+            (name: "Vim",          literal: 0.0),
+            (name: "Equilibrium",  literal: 0.0),
+            (name: "Soul",         literal: 0.0),
+            (name: "Psi",          literal: 0.0),
+        ],
+    ),
+]

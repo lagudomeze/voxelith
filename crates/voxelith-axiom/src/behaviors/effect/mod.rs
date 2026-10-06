@@ -33,8 +33,9 @@ use bevy_ecs::prelude::*;
 
 use crate::behaviors::content::{ResourceId, SkillCatalog, SkillId, StatusCatalog, StatusId};
 use crate::behaviors::contest::{CombatRng, Contest};
-use crate::behaviors::phase::{CombatLog, PendingThreat};
+use crate::behaviors::phase::CombatLog;
 use crate::behaviors::requirement::Condition;
+use crate::behaviors::threat::ThreatWindow;
 use crate::behaviors::value::{EvalContext, Value, Who, eval};
 
 /// 效果：世界突变的**受控闭集**。
@@ -120,7 +121,7 @@ pub struct EffectContext<'a, 'w, 's, B: Blob> {
     /// 随机源（只有 `RollUnder` 会用到）。
     pub rng: &'a mut CombatRng,
     /// 挂起威胁。
-    pub pending_threat: &'a mut PendingThreat,
+    pub window: &'a mut ThreatWindow,
     /// 战斗日志（追加式）。
     pub log: &'a mut CombatLog,
     /// 本次结算的强度（对抗差值 / 比值）；顶层入口为 0。

@@ -128,6 +128,11 @@ pub struct Skill {
     pub roles: Vec<crate::behaviors::content::descriptor::RoleRon>,
     /// 释放时长（秒）：`0.0` = **瞬发**，同帧结算且从不占行动槽。
     pub duration: f32,
+    /// 后摇时长（秒）：**释放点之后仍然占着槽**的时间（`0.0` = 没有后摇）。
+    ///
+    /// 后摇的语义是"僵直 / 冷却"，**不是定身**：后摇期间可以移动，但不能再出手。
+    /// 它只在行动实体上生效（`Action::enter_recovery`），不进 `Cooldowns`。
+    pub recovery: f32,
     /// 释放前的需求（全部满足才可用）。
     pub requirements: Vec<Requirement>,
     /// 消耗（全部付得起才可用）。

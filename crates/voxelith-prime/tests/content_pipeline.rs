@@ -114,7 +114,7 @@ fn player_is_spawned_from_content_not_hardcoded() {
         (row.0.clone(), row.1.clone(), row.2.clone())
     };
 
-    // `players.ron`：hp 100 / mana 50 / action 1 / reaction 3；力量 12 / 护甲 4 / 敏捷 8。
+    // `players.ron`：hp 100 / 力量 12；特性来自数据（ToME4 移植后是 `humanoid`）。
     let hp = app.world().resource::<Vocab>().resource("hp").expect("hp");
     assert_eq!(pools.max(hp), 100.0, "池上限来自 players.ron");
     let strength = app
@@ -127,7 +127,17 @@ fn player_is_spawned_from_content_not_hardcoded() {
         12.0,
         "属性数值来自 players.ron（不是 Rust 里的字面量）"
     );
-    assert_eq!(traits.0, vec![], "玩家没有特性标签（内容说了算）");
+    // 特性是**词汇 ID**，所以照 `vocabulary.ron` 查（而不是写死一个枚举变体）——
+    // 与下面哥布林那条同样的写法：写死就等于把"人形排第几"抄进测试，反而测不出映射。
+    let humanoid = app
+        .world()
+        .resource::<Vocab>()
+        .tag("humanoid")
+        .expect("vocabulary.ron 登记了 humanoid");
+    assert!(
+        traits.has(humanoid),
+        "players.ron 里的 traits 生效：{traits:?}"
+    );
 }
 
 #[test]

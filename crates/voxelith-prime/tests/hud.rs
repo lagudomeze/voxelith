@@ -91,8 +91,8 @@ fn status_panel_has_one_row_per_pool() {
         query.iter(app.world()).next().expect("有玩家").pools.len()
     };
     assert_eq!(
-        pool_count, 4,
-        "players.ron 里配了 hp / mana / action / reaction"
+        pool_count, 9,
+        "players.ron 里配了 hp / stamina / mana / action / reaction / vim / equilibrium / soul / psi"
     );
 
     let mut rows = app.world_mut().query::<&HudResourceRow>();
@@ -133,8 +133,11 @@ fn resource_rows_show_content_names_and_live_values() {
         "面板标题该是内容里的角色名：{texts:?}"
     );
 
-    // 名字来自 vocabulary.ron（不是 "hp" 这种内部 ID）。
-    for expected in ["生命", "法力", "行动", "反应"] {
+    // 名字来自 vocabulary.ron（不是 "hp" 这种内部 ID）。九条池全都要在面板上出现 ——
+    // 加一种资源仍然不用改 UI 代码（这正是本测试要钉的性质）。
+    for expected in [
+        "生命", "体力", "法力", "行动", "反应", "活力", "失衡", "灵魂", "灵能",
+    ] {
         assert!(
             texts.iter().any(|text| text == expected),
             "面板上该有 `{expected}`：{texts:?}"

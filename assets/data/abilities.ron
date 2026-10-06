@@ -1,0 +1,170 @@
+// 技能（能力）定义 —— 新栈的内容形态，旧 `skills.ron` 的继任者。
+//
+// 边界（每次加内容都要守住）：
+//   · **数值与规则在 RON**（本文件）
+//   · **组合在 Rust**（diesel 的模板是 `bsn!` 场景函数，这是它刻意的取舍）
+//
+// 字段：
+//   cast_time  前摇（秒）：进入 `#Invoking` 之后多久命中；0 = 瞬发
+//   cooldown   冷却（秒）：命中后多久回到可用
+//   requires   释放需求（gauge 表达式，全部满足才能放；加载期编译，写错当场报）
+//   costs      释放费用（进状态机之前扣）
+//   applies    命中后挂哪个状态（按 id 引用 `status_defs.ron`）
+//   tags       技能类别（硬控按它封技能；名字见 `abilities::tags::SkillTag`）
+//   attack     命中规则。**两种"没有伤害"不要混**：
+//                 · **省略整行** = 这一招不产生命中（纯辅助，如净化术）
+//                 · 写 `attack: ()` = 用**默认规则**（攻 = 力量 + 5 vs 护甲，阈值 0，
+//                   暴击余量 5，暴击 ×1.5，扣 Health）—— `basic_attack` 用的就是这个
+//
+// 已迁移的字段来自旧 `skills.ron`：
+//   duration        → cast_time
+//   Contest{attacker: Sum([CasterStat("strength"), Literal(N)])} → attack.power_bonus = N
+//   Contest{defender: TargetStat("armor")}  → attack.defense_attribute = "Armor"
+//   Contest{threshold} / {crit_margin}      → attack.threshold / attack.crit_margin
+//   Mul(SkillPower, Literal(1.5))           → attack.crit_multiplier
+//   ModifyResource(pool: "hp")              → attack.damage_attribute = "Health"
+//   requirements: [Resource(pool:"action", min:1.0)] → requires: ["Action >= 1.0"]
+//   costs: [(pool:"action", amount:1.0)]              → costs: [(attribute: "Action", amount: 1.0)]
+//   ApplyStatus(status: "guarding")         → applies: ["Guarding"]
+//   on_tick: [ModifyResource(...)]          → 状态的 `tick`（见 `status_defs.ron`）
+//   HasThreat / Interrupt / DispelAction    → `counter` 的威胁窗口 + Interrupts/SuperArmor
+//   SkillTags                               → tags
+//
+// **还不能表达的**（写下来当施工清单，别悄悄丢掉）：
+//   · 状态类需求（旧 `NoActiveAction`：它是"槽空不空"，不是属性表达式）
+//   · 叠加规则（旧 `stacking`）
+//   · `on_apply` / `on_expire`（进出生效态时的效果；现在只有 `on_tick`）
+//   · 对抗嵌套（`riposte` 里"招架成功再打一次对抗"）
+//   · 非伤害效果（位移、净化、日志文案）
+[
+    (
+        id: "basic_attack",
+        name: "普通攻击",
+        cast_time: 1.0,
+        cooldown: 1.0,
+        // 旧内容：`Resource(pool:"action", min:1.0)` + `NoActiveAction` + 费用 1 点行动力。
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        // `NoActiveAction`：**动作还没结束时放不出来**（状态类需求，不是属性表达式）。
+        requires_idle: true,
+        // 打中之后削弱对方（`who: Target` 的状态）。
+        applies: ["Weakened"],
+        tags: ["ATTACK"],
+        // 全默认：攻 = 力量 + 5，防 = 护甲，阈值 0，暴击余量 5，暴击 ×1.5，扣 Health。
+        attack: (),
+    ),
+    (
+        id: "goblin_slash",
+        name: "哥布林劈砍",
+        cast_time: 1.0,
+        cooldown: 1.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["ATTACK"],
+        // 怪物这一招**威胁玩家**：1 秒前摇里玩家可以反制。
+        // （`threatening: true` 必须配前摇，加载期会查。）
+        threatening: true,
+        // 旧内容：攻 = 力量 + 3，`crit_margin: 0.0` ⇒ **永不暴击**。
+        attack: (
+            power_bonus: 3.0,
+            crit_margin: 0.0,
+        ),
+    ),
+    (
+        id: "shield_block",
+        name: "盾牌格挡",
+        cast_time: 2.0,
+        cooldown: 2.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["GUARD"],
+        // 旧内容：`ApplyStatus(status: "guarding", duration: Literal(2.0), who: Caster)`。
+        applies: ["Guarding"],
+    ),
+    (
+        id: "riposte",
+        name: "反击",
+        // 反制是瞬发（旧内容 `duration: 0.0`）：窗口开着时才有意义。
+        cast_time: 0.0,
+        cooldown: 1.0,
+        // 旧内容：`HasThreat` 需求 + 1 点反应力。
+        // `HasThreat` 由 `CounterStrike` 的窗口检查承担（见 `abilities::counter`）。
+        requires: ["Reaction >= 1.0"],
+        costs: [(attribute: "Reaction", amount: 1.0)],
+        tags: ["COUNTER"],
+        // **能打断别人的前摇**（旧引擎把这件事写死在 `Effect::Interrupt` 里）。
+        interrupts: true,
+        // 旧内容里反击是个嵌套对抗；这里先用一条直伤规则。
+        attack: (power_bonus: 8.0, crit_margin: 0.0),
+    ),
+    (
+        id: "troll_smash",
+        name: "巨魔重击",
+        cast_time: 2.0,
+        cooldown: 3.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["ATTACK"],
+        threatening: true,
+        // **霸体**：反制打不断它——这一下必须硬吃（或走位躲）。
+        super_armor: true,
+        // 打晕：`Stunned` 封掉对方的攻击 / 反制 / 位移类技能（硬控）。
+        applies: ["Stunned"],
+        attack: (power_bonus: 10.0, crit_margin: 5.0),
+    ),
+    (
+        id: "flame_lash",
+        name: "火焰鞭笞",
+        cast_time: 1.0,
+        cooldown: 2.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["SPELL"],
+        // 打中之后点火：`Burning` 是个**持续伤害**状态（每 1 秒掉 3 点）。
+        applies: ["Burning"],
+        attack: (power_bonus: 4.0, crit_margin: 0.0),
+    ),
+    (
+        id: "hunters_mark",
+        name: "猎手印记",
+        cast_time: 1.0,
+        cooldown: 3.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["SPELL"],
+        // 挂上 `Marked`：它会在挂上 / 到期 / 被顶掉三个时机各打一下
+        // （`on_apply` / `on_expire` / `on_remove`）。
+        applies: ["Marked"],
+        // `crit_margin: 0.0` ⇒ 永不暴击，伤害是确定的 9 点（攻 12 - 防 3）。
+        attack: (power_bonus: 2.0, crit_margin: 0.0),
+    ),
+    (
+        id: "cleanse",
+        name: "净化术",
+        cast_time: 1.0,
+        cooldown: 4.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["SPELL"],
+        // 旧 `Effect::RemoveStatus` / `DispelAction` 的继任者：**移除目标身上的减益**。
+        // 被净化走的是 `#Removed` 那条边，所以 `on_remove` 照常触发（见 `Marked`）。
+        dispels: (
+            max: 1,
+            debuffs_only: true,
+        ),
+        // 纯辅助：**省略 `attack`**（不产生命中）。
+        // ⚠️ 写 `attack: ()` 会变成"用默认规则"——那会给净化术加上 18 点暴击伤害（踩过一次）。
+    ),
+    (
+        id: "acid_spray",
+        name: "酸液喷溅",
+        cast_time: 1.0,
+        cooldown: 2.0,
+        requires: ["Action >= 1.0"],
+        costs: [(attribute: "Action", amount: 1.0)],
+        tags: ["SPELL"],
+        // 挂 `Corroding`：可以叠三层，而且**每跳按层数的平方**算（内容里写的表达式）。
+        applies: ["Corroding"],
+        attack: (power_bonus: 3.0, crit_margin: 0.0),
+    ),
+]

@@ -1,26 +1,23 @@
-//! 怪物侧：**能量 → 决定 → 执行**。
+//! 怪物侧：**能量 → 意图 → 行动**。
 //!
-//! 怪物没有独立的时间轴：它靠 [`ActionEnergy`] 攒能量，攒满就选一招。但"选招"与
-//! "出手"是**两个时刻**，中间隔着决策槽（[`DecisionSlot`]）：
+//! 怪物没有独立的时间轴：它靠 [`ActionEnergy`] 攒能量。攒满之后**意图与提交在同一帧原子发生**
+//! （见 [`intent`]）：没有决策实体、没有排队、没有"存起来等窗口"。
 //!
 //! ```text
-//! monster_decide  攒满能量 → 选招 → 写进决策槽（只决定，不出手）
-//! monster_act     决策槽有货 + 威胁窗口空 → 生成威胁行动 + 登记 PendingThreat
+//! monster_intent   槽空 + 窗口空 + 能量满 → 选招 → 付费用 / 上冷却 → 发 StartAction
+//! commit_actions   唯一入口：检查槽 / 窗口 → 建 Action（威胁到 PC 就发威胁消息）
 //! ```
 //!
-//! 两步为什么必须拆开、决策槽为什么是**一对一**关系，见 [`decision`] 的模块文档。
 //! 这条链路是反制窗口的**唯一来源**：
 //!
 //! ```text
-//! monster_decide ─► DecisionSlot ─► monster_act ─► PendingThreat ─► update_phase ─► AwaitingCounter
+//! monster_intent ─► StartAction ─► commit_actions ─► Threat 标记 + ThreatensPlayer
+//!                                                     ─► ThreatWindow ─► update_phase ─► AwaitingCounter
 //! ```
 
-mod decision;
+mod intent;
 
-pub use decision::{
-    AiDecision, DecidedBy, DecisionSlot, SettledBy, Settles, decision_of, monster_act,
-    monster_decide,
-};
+pub use intent::{IntendingMonster, monster_intent};
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
@@ -55,22 +52,30 @@ pub struct MonsterDef {
 // **`Threat` 在 L0**（`atoms::action`）：它标的是**行动**，零依赖。
 pub use crate::atoms::action::Threat;
 
+/// 选出来的一招（**纯函数的结果，不落地**）。
+///
+/// 它不存目标：目标由意图在提交时一并交给 [`StartAction`](crate::behaviors::action::StartAction)，
+/// 因为"这一招放不放得出来"（`ctx.target`）与"打谁"是两件事
+/// （见 [docs/combat-design.md](../../../../docs/combat-design.md) §3.0 的三条正交轴）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChosenSkill {
+    /// 技能词汇 ID（日志 / 表现说话用）。
+    pub skill: SkillId,
+    /// 决定那一刻解析好的技能实体（执行时不再查目录）。
+    pub skill_entity: Entity,
+    /// 选中时的权重（依据的凭证）。
+    pub weight: f32,
+}
+
 /// 选招（**纯函数**）：只有**条件成立且技能可用**的候选参与，取权重最大者；平局取靠前的（确定性）。
-///
-/// 返回的是**一条完整的决策**：技能词汇 ID、决定那一刻解析好的技能实体、权重，以及锁定目标。
-///
-/// `target` 由调用方传入，而不是从 `ctx.target` 里取：`ctx.target` 回答的是"这一招放不放得
-/// 出来"，决策要记的是"打谁"。两者此刻恰好相同，但**语义不同**，不该互相顶替
-/// （见 [docs/combat-design.md](../../../../docs/combat-design.md) §4.0 的三条正交轴）。
 pub fn choose_skill<B: crate::behaviors::effect::Blob>(
     choices: &[AiChoice],
     ctx: &CasterContext<'_, B>,
     catalog: &SkillCatalog,
     reads: &B,
     resources: &Resources,
-    target: Option<Entity>,
-) -> Option<AiDecision> {
-    let mut best: Option<AiDecision> = None;
+) -> Option<ChosenSkill> {
+    let mut best: Option<ChosenSkill> = None;
     for choice in choices {
         if !condition_holds(choice.when, ctx, resources) {
             continue;
@@ -89,11 +94,10 @@ pub fn choose_skill<B: crate::behaviors::effect::Blob>(
         }
         let better = best.is_none_or(|current| choice.weight > current.weight);
         if better {
-            best = Some(AiDecision {
+            best = Some(ChosenSkill {
                 skill: choice.skill,
                 skill_entity,
                 weight: choice.weight,
-                target,
             });
         }
     }
@@ -121,9 +125,8 @@ pub struct MonsterPlugin;
 
 impl Plugin for MonsterPlugin {
     fn build(&self, _app: &mut App) {
-        // 系统注册在 `CombatPlugin`：`monster_decide` / `monster_act` 必须在 `update_phase`
-        // 之前，而且两者之间要落一次 `ApplyDeferred`（刚写下的决策要当场可见），
-        // 跨域顺序是装配层的事。
+        // 系统注册在 `CombatPlugin`：`monster_intent` 必须在 `commit_actions` 之前，
+        // 且整条链排在 `update_phase` 之前，跨域顺序是装配层的事。
     }
 }
 

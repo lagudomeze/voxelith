@@ -98,6 +98,7 @@ pub fn spawn_skill(
             // 测试技能默认**不限定角色**（谁都能用）；要测归属就自己改。
             roles: Vec::new(),
             duration,
+            recovery: 0.0,
             requirements: Vec::new(),
             costs: Vec::new(),
             targeting: Targeting::SelfOnly,

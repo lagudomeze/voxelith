@@ -46,6 +46,7 @@ pub(super) fn resolve_skill(
         tags: ron.tags.iter().copied().collect(),
         roles: ron.roles.clone(),
         duration: ron.duration,
+        recovery: ron.recovery,
         requirements,
         costs,
         targeting: resolve_targeting(ron.targeting),

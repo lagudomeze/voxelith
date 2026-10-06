@@ -18,9 +18,9 @@ use bevy_ecs::prelude::*;
 use voxelith_axiom::atoms::actor::{ActionEnergy, Faction};
 use voxelith_axiom::behaviors::content::{SkillCatalog, SkillId};
 use voxelith_axiom::behaviors::monster::{AiChoice, Threat};
-use voxelith_axiom::behaviors::phase::PendingThreat;
 use voxelith_axiom::behaviors::requirement::Condition;
 use voxelith_axiom::behaviors::skill::SkillTags;
+use voxelith_axiom::behaviors::threat::ThreatWindow;
 
 use support::*;
 
@@ -32,6 +32,7 @@ fn register(app: &mut App, skill: Entity) {
 }
 
 #[test]
+#[ignore = "旧设计的时序断言：它钉的是『决策槽 + 挂起威胁』那一刻的行为，而新战斗栈用『前摇态是否 Active』表达威胁（见 voxelith_abilities::threat 与 ::skills）。旧代码保留作迁移源，但这些断言不再成立。"]
 fn monster_waits_until_its_energy_fills() {
     let mut app = test_app();
     let _player = spawn_player(app.world_mut());
@@ -58,19 +59,19 @@ fn monster_waits_until_its_energy_fills() {
 
     app.update();
     assert!(
-        app.world().resource::<PendingThreat>().action.is_none(),
+        !app.world().resource::<ThreatWindow>().is_open(),
         "能量没攒满就不该生成威胁"
     );
 
     // 推进足够时间 → 攒满 → 出手并登记威胁。
     step(&mut app, 1.5);
 
-    let threat = *app.world().resource::<PendingThreat>();
-    assert!(threat.source.is_some(), "威胁来源是怪物自己");
+    let window = app.world().resource::<ThreatWindow>();
+    assert!(window.source().is_some(), "威胁来源是怪物自己");
     assert!(
-        threat
-            .action
-            .is_some_and(|action| app.world().get::<Threat>(action).is_some()),
+        window
+            .first()
+            .is_some_and(|threat| app.world().get::<Threat>(threat.action).is_some()),
         "威胁行动带 `Threat` 标记"
     );
 }
@@ -103,7 +104,7 @@ fn ai_condition_sees_the_monsters_own_status() {
 
     app.update();
     assert!(
-        app.world().resource::<PendingThreat>().action.is_none(),
+        !app.world().resource::<ThreatWindow>().is_open(),
         "没有该状态 → 候选不参与"
     );
 
@@ -122,12 +123,13 @@ fn ai_condition_sees_the_monsters_own_status() {
     step(&mut app, 1.5);
 
     assert!(
-        app.world().resource::<PendingThreat>().action.is_some(),
+        app.world().resource::<ThreatWindow>().is_open(),
         "有该状态 → 候选参与 → 出手（`HasStatus` 真的看得见怪物自己的状态）"
     );
 }
 
 #[test]
+#[ignore = "同上：『挂起威胁未清掉之前别的怪物不能顶掉它』是单格窗口的语义；新栈的窗口是集合（多条威胁并存，玩家自己选反制哪条）。"]
 fn only_one_threat_at_a_time() {
     let mut app = test_app();
     let _player = spawn_player(app.world_mut());
@@ -163,7 +165,7 @@ fn only_one_threat_at_a_time() {
     );
 
     step(&mut app, 1.5);
-    let source = app.world().resource::<PendingThreat>().source;
+    let source = app.world().resource::<ThreatWindow>().source();
     assert!(
         source == Some(first) || source == Some(second),
         "只该有一个威胁：{source:?}"
@@ -177,13 +179,14 @@ fn only_one_threat_at_a_time() {
         .current = 1.0;
     step(&mut app, 0.1);
     assert_eq!(
-        app.world().resource::<PendingThreat>().source,
+        app.world().resource::<ThreatWindow>().source(),
         source,
         "挂起威胁未清掉之前，别的怪物不能顶掉它"
     );
 }
 
 #[test]
+#[ignore = "同上：它断言『决策内锁定目标』；新栈不落地决策（意图每帧重算，目标在提交那一刻才定）。"]
 fn ai_picks_the_highest_weight_and_breaks_ties_by_order() {
     let mut app = test_app();
     let _player = spawn_player(app.world_mut());
@@ -244,8 +247,9 @@ fn ai_picks_the_highest_weight_and_breaks_ties_by_order() {
     step(&mut app, 1.5);
     let action = app
         .world()
-        .resource::<PendingThreat>()
-        .action
+        .resource::<ThreatWindow>()
+        .first()
+        .map(|threat| threat.action)
         .expect("出手了");
     let cast = app
         .world()

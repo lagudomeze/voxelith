@@ -13,14 +13,15 @@ use bevy_ecs::system::SystemParam;
 use crate::atoms::actor::{
     ActorRole, ActorState, ActorTags, Cooldowns, Faction, Player, Resources, Stats,
 };
-use crate::behaviors::action::{ActiveActions, CastRequest, CastsSkill, InitiatedBy, ResolveNow};
+use crate::behaviors::action::{ActiveActions, CastRequest, InitiatedBy, StartAction};
 use crate::behaviors::contest::CombatRng;
 use crate::behaviors::effect::Reads;
-use crate::behaviors::phase::PendingThreat;
 use crate::behaviors::requirement::{CasterContext, Cost, skill_available, status_snapshot};
 use crate::behaviors::skill::Skill;
+use crate::behaviors::skill::SkillTags;
 use crate::behaviors::status::{ActiveStatus, StatusDef};
 use crate::behaviors::targeting::{TargetingContext, faction_of, hostile_to, resolve_target};
+use crate::behaviors::threat::ThreatWindow;
 
 /// 释放技能需要的全部参数。
 #[derive(SystemParam)]
@@ -48,7 +49,8 @@ pub struct CastParams<'w, 's> {
     /// 行动实例。
     pub initiated: Query<'w, 's, &'static InitiatedBy>,
     /// 挂起威胁。
-    pub threat: Res<'w, PendingThreat>,
+    /// 威胁窗口（判"这一招是不是反制、窗口开没开"）。
+    pub window: Res<'w, ThreatWindow>,
     /// 随机源（校验本身不用，但保持与效果执行一致的资源形状）。
     pub rng: ResMut<'w, CombatRng>,
 }
@@ -104,7 +106,10 @@ fn try_cast(request: &CastRequest, commands: &mut Commands, params: &mut CastPar
         .active_actions
         .get(request.caster)
         .map_or(0, |active| active.len());
-    if skill.duration > 0.0 && slot_count > 0 {
+    // **反制**是唯一能"顶着已占的槽出手"的东西：它走 `replace`（先放弃自己当前行动）。
+    // 判据是**技能自己的标签** + 窗口开着 —— 引擎不写死"哪个技能是反制"。
+    let replace = skill.tags.contains(SkillTags::COUNTER) && params.window.is_open();
+    if slot_count > 0 && !replace {
         return false;
     }
 
@@ -126,7 +131,7 @@ fn try_cast(request: &CastRequest, commands: &mut Commands, params: &mut CastPar
     // 目标解析归 [`resolve_target`]，"谁能当敌人"归 [`hostile_to`]——两份语义各只有一处。
     let targeting = TargetingContext {
         explicit: request.target,
-        threat: Some(*params.threat),
+        threat: params.window.first().copied(),
     };
     let target = resolve_target(
         skill.targeting,
@@ -149,7 +154,7 @@ fn try_cast(request: &CastRequest, commands: &mut Commands, params: &mut CastPar
         statuses: &statuses,
         reads: &reads,
         active_action_count: slot_count,
-        threat: Some(&params.threat),
+        threat: Some(&params.window),
         target,
         target_resources,
         target_faction,
@@ -166,19 +171,12 @@ fn try_cast(request: &CastRequest, commands: &mut Commands, params: &mut CastPar
     }
     cooldowns.start(skill.id, skill.duration.max(0.5));
 
-    let action = commands
-        .spawn((
-            super::Action {
-                elapsed: 0.0,
-                duration: skill.duration,
-                target: request.target,
-            },
-            CastsSkill(request.skill),
-            InitiatedBy(request.caster),
-        ))
-        .id();
-    if skill.is_instant() {
-        commands.entity(action).insert(ResolveNow);
-    }
+    // 走**唯一入口**：真正建行动的是 `commit_actions`（它检查槽与窗口、保证每帧一次、
+    // 并且是唯一的 spawn 点）。这里只负责校验与扣费。
+    commands.write_message(if replace {
+        StartAction::replacing(request.caster, request.skill, request.target)
+    } else {
+        StartAction::new(request.caster, request.skill, request.target)
+    });
     true
 }

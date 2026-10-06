@@ -1,0 +1,89 @@
+// 角色属性（gauge 属性图）——新栈的内容形态。
+//
+// 命名用大写驼峰（gauge 的惯例）；旧 `skills.ron` 里的
+// `CasterStat("strength")` / `TargetStat("armor")` / `ModifyResource(pool: "hp")`
+// 对应这里的 `Strength` / `Armor` / `Health`。
+//
+// ============================================================================
+// 这份文件只管**全局定义**；每个角色的数在 `actors.ron`
+// ============================================================================
+//
+// | 文件 | 管什么 |
+// |---|---|
+// | **本文件** | `vocabulary`（有哪些名字）+ `base`（派生表达式、每秒回复） |
+// | `actors.ron` | 每个角色自己的数（主属性 + 资源当前值） |
+//
+// ⚠️ **两边不许写同一个名字**：gauge 的 `ModifierSet::add` 是**累加**（`+=`），
+// 所以"这里写 Strength 10、角色再写 12"得到的是 **22**。加载期会拦（`abilities::actors`）。
+//
+// ============================================================================
+// 迁移自旧 `vocabulary.ron`（那份是旧数值层的权威词表）
+// ============================================================================
+//
+// **资源**（9 条）：hp/mana/action/reaction/stamina/vim/equilibrium/soul/psi
+// **属性**（12 条）：strength/armor/agility/dexterity/constitution/magic/willpower/
+//                   cunning/accuracy/defense/level/skill_rank
+//
+// 旧词表里的池有 `max` 与 `regen` 两个字段，在新栈里各自成了显式的属性：
+//
+//   Max*   由表达式**从主属性派生**（旧词表写死的上限值在这里变成公式）
+//   *Regen 每秒回复多少（旧词表的 `regen` 字段）
+(
+    // **词汇**：这一份属性表里有哪些名字。
+    //
+    // 为什么需要它：**"名字登记过"与"值由谁给"是两件事**。主属性由角色定义给值，
+    // 但名字必须在这里登记，否则校验会把角色文件里合法的写法当成拼错
+    // （`Attributes::value("拼错的名字")` 返回 0 且不报错，所以校验是唯一的防线）。
+    vocabulary: [
+        // ---- 主属性（旧 stats 的六项 + 两个"伪天赋等级"）----
+        "Strength", "Dexterity", "Constitution", "Magic", "Willpower", "Cunning",
+        // 旧词表说得很清楚：`accuracy` / `defense` 在 ToME4 里是**算出来的**，
+        // 但引擎不替你从等级推导，所以它们必须显式写成一个属性（它们是 `Contest` 的两端）。
+        "Accuracy", "Defense", "Armor", "Agility", "Level", "SkillRank",
+        // ---- 资源（当前值）----
+        "Health", "Mana", "Action", "Reaction", "Stamina", "Vim", "Equilibrium", "Soul", "Psi",
+    ],
+
+    // **全局定义**：生成时铺一次、不可卸的那一套（也是角色定义不能复用的名字集合）。
+    base: [
+        // ---- 上限（**派生**：旧词表里的固定数值在这里变成公式）----
+        // 写法说明：`ModifierSet` 的条目都是"加"，而缺失的属性值为 0，
+        // 所以"只有一条修改"就等于"定义"——这是新栈里写派生值的惯用手法。
+        (name: "MaxHealth",      expr: "Constitution * 10.0"),
+        (name: "MaxStamina",     expr: "Constitution * 10.0"),
+        (name: "MaxMana",        expr: "Willpower * 5.0"),
+        (name: "MaxPsi",         expr: "Willpower * 6.0"),
+        (name: "MaxVim",         expr: "Willpower * 2.0"),
+        (name: "MaxEquilibrium", expr: "Willpower * 10.0"),
+        (name: "MaxAction",      literal: 3.0),
+        (name: "MaxReaction",    literal: 1.0),
+        (name: "MaxSoul",        literal: 10.0),
+
+        // ---- 每秒回复（旧词表的 `regen` 字段）----
+        (name: "HealthRegen",      literal: 0.0),
+        (name: "ManaRegen",        literal: 1.0),
+        (name: "ActionRegen",      literal: 0.0),
+        (name: "ReactionRegen",    literal: 0.0),
+        (name: "StaminaRegen",     literal: 1.0),
+        (name: "VimRegen",         literal: 0.2),
+        (name: "EquilibriumRegen", literal: 3.0),
+        (name: "SoulRegen",        literal: 0.0),
+        (name: "PsiRegen",         literal: 0.8),
+    ],
+
+    // 哪条资源按哪条回复属性长、封顶在哪个上限。
+    // 旧引擎把这三件事写死在池模板里（而且按池名**全局**生效）；
+    // 新栈把它们变成内容 + **按角色读**的属性，于是"法师每秒回 1 点法力"
+    // 可以只装在法师身上。
+    regen: [
+        (attribute: "Health",      max: "MaxHealth",      rate: "HealthRegen"),
+        (attribute: "Mana",        max: "MaxMana",        rate: "ManaRegen"),
+        (attribute: "Action",      max: "MaxAction",      rate: "ActionRegen"),
+        (attribute: "Reaction",    max: "MaxReaction",    rate: "ReactionRegen"),
+        (attribute: "Stamina",     max: "MaxStamina",     rate: "StaminaRegen"),
+        (attribute: "Vim",         max: "MaxVim",         rate: "VimRegen"),
+        (attribute: "Equilibrium", max: "MaxEquilibrium", rate: "EquilibriumRegen"),
+        (attribute: "Soul",        max: "MaxSoul",        rate: "SoulRegen"),
+        (attribute: "Psi",         max: "MaxPsi",         rate: "PsiRegen"),
+    ],
+)

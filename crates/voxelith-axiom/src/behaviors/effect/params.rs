@@ -18,9 +18,10 @@ use crate::behaviors::action::{ActiveActions, InitiatedBy};
 use crate::behaviors::content::{SkillCatalog, StatusCatalog};
 use crate::behaviors::contest::CombatRng;
 use crate::behaviors::effect::Blob;
-use crate::behaviors::phase::{CombatLog, PendingThreat};
+use crate::behaviors::phase::CombatLog;
 use crate::behaviors::skill::Skill;
 use crate::behaviors::status::{ActiveStatus, StatusDef};
+use crate::behaviors::threat::ThreatWindow;
 
 /// 效果执行器要的只读数据 + 写入口。
 ///
@@ -51,8 +52,8 @@ pub struct EffectParams<'w, 's> {
     pub status_catalog: Option<Res<'w, StatusCatalog>>,
     /// 随机源（`RollUnder` 用）。
     pub rng: ResMut<'w, CombatRng>,
-    /// 挂起威胁。
-    pub threat: ResMut<'w, PendingThreat>,
+    /// 威胁窗口（未处理的威胁集合）。
+    pub window: ResMut<'w, ThreatWindow>,
     /// 战斗日志。
     pub log: ResMut<'w, CombatLog>,
 }

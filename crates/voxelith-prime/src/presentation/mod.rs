@@ -15,8 +15,13 @@
 //!
 //! 行动进度同理：`Action::progress()` 在 L1 就有，画行动条时直接读，不必先抄进 Resource。
 
+mod combat_panel;
 mod hud;
 
+pub use combat_panel::{
+    CombatFeedback, CombatPanelRoot, CombatPanelText, SlotState, format_remaining, pool_rows,
+    record_rejections, slot_state, threat_line,
+};
 pub use hud::{
     HudPlugin, HudResourceBar, HudResourceRow, HudResourceValue, HudRoot, HudSkillButton,
     HudSkillsPanel, HudStatusPanel, HudTitle,
@@ -49,6 +54,8 @@ impl Plugin for PresentationPlugin {
         // 同阶段的 Commands 要到阶段末尾才落地，所以这里显式链一下顺序。
         app.add_plugins(crate::ui_theme::UiThemePlugin)
             .add_systems(Update, print_log)
-            .add_plugins(HudPlugin);
+            .add_plugins(HudPlugin)
+            // 新栈（diesel + gauge + gearbox）的面板：与旧 HUD 并存，各读各的。
+            .add_plugins(combat_panel::CombatPanelPlugin);
     }
 }

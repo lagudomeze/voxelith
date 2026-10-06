@@ -110,6 +110,6 @@ fn eval_condition<B: Blob>(
             };
             find_status(ctx, entity, def_entity).is_some()
         }
-        Condition::HasThreat => ctx.pending_threat.action.is_some(),
+        Condition::HasThreat => ctx.window.is_open(),
     }
 }

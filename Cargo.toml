@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/voxelith-axiom",
+    "crates/voxelith-abilities",
     "crates/voxelith-prime",
     "probe/*"
 ]
@@ -21,6 +22,7 @@ members = [
 # 注意 `cargo test --workspace` **会**包含它（那是显式的全量）。
 default-members = [
     "crates/voxelith-axiom",
+    "crates/voxelith-abilities",
     "crates/voxelith-prime",
 ]
 
@@ -88,6 +90,57 @@ version = "0.37"
 
 [workspace.dependencies.voxelith-axiom]
 path = "crates/voxelith-axiom"
+
+[workspace.dependencies.voxelith-abilities]
+path = "crates/voxelith-abilities"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 生态插件（新架构的基座）
+#
+# 注意：**每一项都要写自己的表头**。裸键会挂到上一个 `[workspace.dependencies.X]`
+# 子表里去（TOML 的表头一直生效到下一个表头），那样 cargo 会说
+# "dependency.bevy_diesel was not found in workspace.dependencies"。
+# ───────────────────────────────────────────────────────────────────────────
+
+# **技能三件套**：gearbox = 状态图，gauge = 属性图，diesel = 技能框架
+# （把前两者粘起来：模板组合 / 目标管线 / 效果传播 / 空间后端）。
+#
+# ⚠️ `bevy_diesel 0.2` 依赖 `bevy_gearbox ^0.8`，所以这里**必须写 0.8**：
+# 写成 0.9 会让 cargo 同时拉进两份 gearbox（0.x 的 `^0.8` = `>=0.8.0, <0.9.0`），
+# 两份类型互不兼容，报错会非常难读。
+[workspace.dependencies.bevy_diesel]
+version = "0.2"
+
+[workspace.dependencies.bevy_gauge]
+version = "0.5"
+
+[workspace.dependencies.bevy_gearbox]
+version = "0.8"
+
+# 其余生态库（先统一登记版本，按需接线到具体 crate）。
+[workspace.dependencies.avian3d]
+version = "0.7"
+
+[workspace.dependencies.bevy_kira_audio]
+version = "0.26"
+
+[workspace.dependencies.bevy_egui]
+version = "0.42"
+
+[workspace.dependencies.bevy_hanabi]
+version = "0.19"
+
+[workspace.dependencies.leafwing-input-manager]
+version = "0.21"
+
+[workspace.dependencies.bevy_tweening]
+version = "0.16"
+
+[workspace.dependencies.bevy_asset_loader]
+version = "0.27"
+
+[workspace.dependencies.moonshine-save]
+version = "0.7"
 
 # ---------------------------------------------------------------------------
 # 构建配置：Windows 上 Bevy 全量 debug 构建默认会撞 `LNK1102: out of memory`

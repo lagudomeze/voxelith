@@ -253,7 +253,7 @@ fn run_timing(
     let caster = instance.source;
     // 三个可变资源的借用与"只读视图"不能重叠：先取裸指针，用时才重借。
     let rng_ptr: *mut crate::behaviors::contest::CombatRng = &mut *params.rng;
-    let threat_ptr: *mut crate::behaviors::phase::PendingThreat = &mut *params.threat;
+    let threat_ptr: *mut crate::behaviors::threat::ThreatWindow = &mut *params.window;
     let log_ptr: *mut crate::behaviors::phase::CombatLog = &mut *params.log;
     // 目录缺席时用空目录兜底：`SpawnAction` / `ApplyStatus` 这类效果自然什么都不做，
     // 但同一组里别的效果（例如中毒的掉血）照常执行。
@@ -267,7 +267,7 @@ fn run_timing(
         status_catalog,
         reads: params.reads_view(resources, stats),
         rng: unsafe { &mut *rng_ptr },
-        pending_threat: unsafe { &mut *threat_ptr },
+        window: unsafe { &mut *threat_ptr },
         log: unsafe { &mut *log_ptr },
         skill_power: 0.0,
     };
