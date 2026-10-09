@@ -7,7 +7,7 @@
 | 文件 | 内容 | 状态 |
 | --- | --- | --- |
 | [00-original-discussion.md](00-original-discussion.md) | 原始讨论，逐字归档，需求的唯一来源 | 待收录 |
-| [requirements.md](requirements.md) | 提炼后的需求条目（`R-xxx`） | 待提炼 |
+| [requirements.md](requirements.md) | 提炼后的需求条目（`REQ-xxx`） | 待提炼 |
 | [open-questions.md](open-questions.md) | 未澄清的问题（`Q-xxx`） | 维护中 |
 
 ## 工作流
@@ -20,7 +20,7 @@
 
 ## 写需求条目的规矩
 
-- 一条一个 ID（`R-xxx`），一句话说清"谁、在什么情况下、能做什么"。
+- 一条一个 ID（`REQ-xxx`），一句话说清"谁、在什么情况下、能做什么"。`R<n>` 属于 `legacy` 的旧规则编号，新需求不许占用。
 - 每条必须能指回[原始讨论](00-original-discussion.md)的原文位置，或指回某次用户确认。
 - 必须有可验证的判定标准。写不出标准的，说明它还是张 `Q-xxx`。
-- 明确不做的事也要记（`R-xxx 不做：…`），免得设计阶段反复回头。
+- 明确不做的事也要记（`REQ-xxx 不做：…`），免得设计阶段反复回头。
