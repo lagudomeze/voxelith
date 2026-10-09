@@ -9,7 +9,7 @@
 | 文件 | 内容 | 状态 |
 | --- | --- | --- |
 | [00-original-discussion.md](00-original-discussion.md) | 原始讨论，逐字归档，需求的唯一来源 | 待收录 |
-| [requirements.md](requirements.md) | 已确认的需求条目（`REQ-xxx`） | 待提炼 |
+| [requirements.md](requirements.md) | 需求条目（`REQ-xxx`），从 `legacy` 的文档与工作日志提炼，每条带出处 | 已提炼 173 条 |
 
 ## 工作流
 
