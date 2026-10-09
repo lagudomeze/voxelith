@@ -12,15 +12,15 @@
 | 手上是什么 | 写到 |
 | --- | --- |
 | 用户说过的话（原文） | `requirements/00-original-discussion.md` |
-| 一个还答不上来的问题 | `requirements/open-questions.md` |
 | 定下来的需求条目 | `requirements/requirements.md` |
-| 引擎选型结论 | `design/engine-decision.md`（**待写**，见 `Q-001`） |
+| 定下来的流程 / 结构决定 | [decisions.md](decisions.md) |
+| 引擎无关的模型（组件 / 系统 / 消息 / 数值） | `design/ecs-model.md`、`design/atoms.md` |
 | 某个引擎下怎么实现 | `design/<engine>/NN-主题.md` |
-| 引擎无关的机制设计 | 落点**未定**，见 [Q-002](requirements/open-questions.md) |
+| 引擎选型结论（定下来才写） | `design/engine-decision.md` |
 
-判断标准很简单：**回答"是什么/要什么"进 requirements，回答"怎么做"进 design**。放不进去的，说明它还是张 `Q-xxx`。
+判断标准很简单：**回答"是什么 / 要什么"进 requirements，回答"怎么做"进 design。**
 
-## 已定的结构决策
+## 两种东西不进仓库
 
-- 需求条目用 `REQ-xxx`；`legacy` 的 `R1`–`R117` 是旧项目的「规则」，`R<n>` 留给它引用，新体系不占用（[Q-003](requirements/open-questions.md)）。
-- 旧项目的工程规范类内容（命名 / 文件组织 / 反模式 / 守卫 / 流程）**暂不迁移**：这里只保留「需求 + 设计」两类。将来真需要时再另立目录，**不许塞进 `design/<engine>/`**（[Q-004](requirements/open-questions.md)）。
+1. **还没定的问题。** 未决事项在对话里定，定完按上面那张表落文件——仓库不是讨论区。
+2. **过程记录。** 谁在哪一轮说了什么、为什么改主意；除非它解释了某个决定，那属于 [decisions.md](decisions.md)。
