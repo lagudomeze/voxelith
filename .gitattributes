@@ -1,0 +1,16 @@
+# 统一按 LF 存与检出，避免 Windows 上的 CRLF 警告
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ogg binary
+*.wav binary
+*.mp3 binary
+*.glb binary
+*.gltf binary
+*.ttf binary
+*.otf binary
+*.zip binary
