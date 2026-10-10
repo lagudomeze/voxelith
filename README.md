@@ -9,6 +9,8 @@
 | 弄清项目到底要做什么 | [docs/requirements/](docs/requirements/README.md) |
 | 看怎么做（Bevy / Godot 两条线） | [docs/design/](docs/design/README.md) |
 | 知道 AI agent 在本仓库怎么干活 | [AGENTS.md](AGENTS.md) |
+| 看还有什么要做（执行任务） | [TODO.md](TODO.md) |
+| 查素材出处与署名 | [docs/assets.md](docs/assets.md) |
 | 翻重构前的旧代码 | `git switch legacy`（只读） |
 
 ## 文档约定
