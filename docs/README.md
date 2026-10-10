@@ -12,7 +12,7 @@
 | 手上是什么 | 写到 |
 | --- | --- |
 | 用户说过的话（原文） | `requirements/00-original-discussion.md` |
-| 定下来的需求条目 | `requirements/requirements.md` |
+| 定下来的需求条目 | `requirements/requirements.md`（粗略）+ 同目录按领域拆开的细则文件 |
 | 定下来的流程 / 结构决定 | [decisions.md](decisions.md) |
 | 引擎无关的模型（组件 / 系统 / 消息 / 数值） | `design/` 顶层 —— **当前为空，设计要先讨论** |
 | 某个引擎下怎么实现 | `design/<engine>/NN-主题.md` —— **当前为空，设计要先讨论** |
