@@ -55,6 +55,7 @@
 | C-13 | 呈现：斜 45° 等距、像素与素材规格、界面由内容驱动 | [presentation.md](presentation.md) |
 | C-14 | 质量：可复现、可无渲染测试、可被外部观察 | [quality.md](quality.md) |
 | C-15 | 范围：明确不做的东西 | [scope.md](scope.md) |
+| C-16 | 物品与装备：装备部位、物品栏、装备带来的数值变化 | [items.md](items.md) |
 
 ## 范围与非目标（概括）
 

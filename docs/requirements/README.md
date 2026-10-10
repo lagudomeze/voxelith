@@ -26,6 +26,7 @@
 | [systems.md](systems.md) | 系统与数值：资源与属性、对抗与判定、状态、成长曲线（`SY-xx`） |
 | [content.md](content.md) | 内容与数据：内容即数据、加载、热重载、素材（`CT-xx`） |
 | [presentation.md](presentation.md) | 呈现与界面：视角、像素与素材规格、界面、表现（`PR-xx`） |
+| [items.md](items.md) | 物品与装备：装备部位、物品栏、装备带来的数值变化（`IT-xx`） |
 | [quality.md](quality.md) | 质量与非功能：可测、可观测、不崩（`QL-xx`） |
 | [scope.md](scope.md) | 范围：明确不做与已降级的（`SC-xx`） |
 
