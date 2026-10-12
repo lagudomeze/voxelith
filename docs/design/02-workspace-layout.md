@@ -20,8 +20,8 @@
 
 | 模块 | 管什么 |
 | --- | --- |
-| `modifier` | 修正：一条 `Modifier`（枚举，平加 / 比例两种载荷）、指回主人的关系 `ModifiesOf`+`Modifiers`、遍历修正的 `modifiers()` |
-| `value` | 读出接口 `Resolvable`（基础值 + Σ贡献）与两种形状的说明——**不要泛型载体** |
+| `modifier` | 修正：一条 `Modifier`（枚举，平加 / 比例）、指回主人的关系、遍历修正的 `modifiers()`、**唯一的公式** `resolve_with` |
+| `value` | 读出：`Resolvable`（单值型）/ `Resourceable`（资源，只到上限）/ 上限的标记 `Max<T>` |
 | `attribute` | 六项标准属性——每项一个 newtype（自己就是自己的标记）+ 修正别名 |
 | `resource` | 资源池（血量、精力）——当前值 + 基础上限，上限有独立标记 + 修正别名 |
 

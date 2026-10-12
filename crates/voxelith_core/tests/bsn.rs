@@ -50,10 +50,11 @@ fn enum_modifier_can_be_written_both_ways() {
         .expect("spawn_scene 失败")
         .id();
 
-    let raw_value = world.get::<Strength>(raw).unwrap().resolved(world, raw);
-    let aliased_value = world.get::<Strength>(aliased).unwrap().resolved(world, aliased);
-    assert_eq!(raw_value, 15.0);
-    assert_eq!(aliased_value, 12.0); // 10 + 5 - 3
+    let strength = world.get::<Strength>(raw).unwrap();
+    assert_eq!(strength.resolve(modifiers::<Strength>(world, raw)), 15.0);
+
+    let strength = world.get::<Strength>(aliased).unwrap();
+    assert_eq!(strength.resolve(modifiers::<Strength>(world, aliased)), 12.0); // 10 + 5 - 3
 }
 
 /// 整棵“角色 + 它的修正”都写在 `bsn!` 里——将来配置化就是这个形态。
@@ -82,10 +83,13 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
 
     assert_eq!(world.get::<Modifiers>(hero).unwrap().len(), 3);
 
-    let strength = world.get::<Strength>(hero).unwrap().resolved(world, hero);
-    assert_eq!(strength, 20.0); // 10 + 5 + 10 × 0.5
+    let strength = world.get::<Strength>(hero).unwrap();
+    assert_eq!(strength.resolve(modifiers::<Strength>(world, hero)), 20.0); // 10 + 5 + 10 × 0.5
 
     let health = world.get::<Health>(hero).unwrap();
-    assert_eq!(health.resolved_max(world, hero), 80.0); // 60 + 20
+    assert_eq!(
+        health.resolve_max(modifiers::<Max<Health>>(world, hero)),
+        80.0 // 60 + 20
+    );
     assert_eq!(health.current, 30.0, "当前值不走修正");
 }

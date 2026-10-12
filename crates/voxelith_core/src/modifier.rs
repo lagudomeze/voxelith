@@ -58,6 +58,19 @@ impl<Mark> Modifier<Mark> {
     }
 }
 
+/// 读出公式：**基础值 + Σ每条修正的贡献**（比例按基础值算）。
+///
+/// 全项目**唯一的公式**——单值型（[`crate::value::Resolvable::resolve`]）与资源上限
+/// （[`crate::value::Resourceable::resolve_max`]）都只是把它包一层。
+///
+/// 它是纯函数：不碰世界、不遍历，给定迭代器就有结果——所以顺序无关、可并行。
+pub fn resolve_with<'a, Mark: 'a>(
+    base: f32,
+    modifiers: impl Iterator<Item = &'a Modifier<Mark>>,
+) -> f32 {
+    base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
+}
+
 /// 修正指回被修正的角色。
 ///
 /// `Entity` 没有 `Default`，所以必须派生 `FromTemplate`，`bsn!` 才能写它。

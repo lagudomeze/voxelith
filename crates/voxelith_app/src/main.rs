@@ -42,19 +42,22 @@ fn setup_hero(world: &mut World) {
         .id();
 
     let modifier_count = world.get::<Modifiers>(hero).map(|m| m.len()).unwrap_or(0);
-    let strength = world.get::<Strength>(hero).unwrap().resolved(world, hero);
+    let strength = world
+        .get::<Strength>(hero)
+        .unwrap()
+        .resolve(modifiers::<Strength>(world, hero));
     let constitution = world
         .get::<Constitution>(hero)
         .unwrap()
-        .resolved(world, hero);
+        .resolve(modifiers::<Constitution>(world, hero));
     let health = world.get::<Health>(hero).unwrap();
-    let max_hp = health.resolved_max(world, hero);
+    let max_hp = health.resolve_max(modifiers::<Max<Health>>(world, hero));
 
     println!("英雄 {hero:?}（{modifier_count} 条修正）");
     println!("  力量 {strength}　基础 10 ＋5 －2 ＋ 50% 比例");
     println!("  体质 {constitution}　无修正");
     println!(
         "  血量 {} / {max_hp}　上限 = 基础 60 ＋ 20 平加；当前值不走修正",
-        health.current
+        health.current()
     );
 }

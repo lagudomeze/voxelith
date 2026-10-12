@@ -19,9 +19,6 @@ macro_rules! single_value {
             pub struct $name(pub f32);
 
             impl Resolvable for $name {
-                /// 单值型：修正直接指向这个类型。
-                type Mark = Self;
-
                 fn base(&self) -> f32 {
                     self.0
                 }

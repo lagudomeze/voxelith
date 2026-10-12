@@ -2,7 +2,7 @@
 
 **这一篇只放真的取决于 Bevy 的取舍。** 模型见[属性与资源](../01-attributes-and-resources.md)，组件形状的约定见[组件约定](../00-component-conventions.md)。
 
-**每条都实测过**：Bevy **0.19.1**，工作区里 `cargo test` 跑通；探索性验证另有 `D:\code\rust\voxelith-bsn-spike`。
+**每条都实测过**：Bevy **0.19.1**，工作区里 `cargo test` 跑通（含 `tests/system_read.rs`）；探索性验证另有 `D:\code\rust\voxelith-bsn-spike`。
 
 ## 命名规则（先看这条）
 
@@ -11,7 +11,7 @@
 | 撞的名字 | 对方是什么 | 症状 | 改成 |
 | --- | --- | --- | --- |
 | `Add` | `bevy_ecs::lifecycle::Add` | `E0659` 歧义，直接编译不过 | `Flat` |
-| `Resource` | `bevy_ecs::resource::Resource`（trait） | **被静默遮蔽**——不报错，但名字的意思变了 | `Pool`（后来干脆不用泛型载体） |
+| `Resource` | `bevy_ecs::resource::Resource`（trait） | **被静默遮蔽**——不报错，但名字的意思变了 | 资源相关用 `Resourceable` |
 | `Single` | `bevy_ecs::system::Single`（system param） | 同上，会遮蔽 | 不用这个名字 |
 
 **自查办法**：对照 `bevy_ecs` 的 `pub mod prelude { ... }` 名单过一遍。
@@ -19,113 +19,115 @@
 ## 形状总览
 
 ```
-Strength(pub f32)              ← 单值型：newtype，自己就是自己的标记（Mark = Self）
-Health { current, base_max }   ← 资源池型
-HealthMax                      ← 上限的标记（资源有两个值，上限得有名字）
+Strength(pub f32)                 ← 单值型：newtype，标记＝它自己
+Health { current, base_max }      ← 资源：当前值 + 上限
+Max<Health>                       ← 上限那个量的标记（资源有两个值，上限要有名字）
 
-Modifier<Mark>                 ← 挂在“修正实体”上的组件（枚举，两个变体）
-├── Flat(Flat<Mark>)           ← 平加：+5 力量
-└── Ratio(Ratio<Mark>)         ← 比例：+50% 基础力量
+Modifier<Mark>                    ← 挂在“修正实体”上的组件
+├── Flat(f32, PhantomData<Mark>)  ← 平加（负 = 减）
+└── Ratio(f32, PhantomData<Mark>) ← 比例（负 = 按比例减）
 
-ModifiesOf(Entity)             ← 修正指回主人
-Modifiers(Vec<Entity>)         ← 主人身上自动维护的列表（linked_spawn）
-
-Resolvable                     ← 读出接口：基础值 + Σ每条修正的贡献
+ModifiesOf(Entity) / Modifiers(Vec<Entity>)   ← 关系：修正指回主人
+Resolvable / Resourceable                     ← 读出：单值型 / 资源
+resolve_with(base, mods)                      ← 全项目唯一的公式
 ```
 
-**没有泛型载体**：不需要 `Value<M>` 这种东西——单值型把 `Mark` 指成自己就够了，还能省掉一层标记命名。
+两条**故意不提供**的东西：
+
+- **没有泛型载体**（`Value<M>` 那种）：单值型的标记就是它自己，资源只需要一个 `Max<T>`。
+- **没有 `resolved(world, owner)`**：写 system 时手里已经有组件和关联列表，不该回头去 `World` 里捞。见下面“system 里怎么用”。
 
 ## 属性：一条宏声明一行
 
 ```rust
 macro_rules! single_value {
-    ($($(#[$meta:meta])* $name:ident),+ $(,)?) => {
-        $(
-            $(#[$meta])*
-            #[derive(Component, Clone, Copy, Debug, Default)]
-            pub struct $name(pub f32);
+    ($($(#[$meta:meta])* $name:ident),+ $(,)?) => {$(
+        $(#[$meta])*
+        #[derive(Component, Clone, Copy, Debug, Default)]
+        pub struct $name(pub f32);
 
-            impl Resolvable for $name {
-                type Mark = Self;              // 单值型：修正直接指向这个类型
-                fn base(&self) -> f32 { self.0 }
-            }
-        )+
-    };
-}
-
-single_value! {
-    /// 力量：物理行为的强度。
-    Strength,
-    /// 敏捷：命中与闪避。
-    Dexterity,
-    // …
+        impl Resolvable for $name {
+            fn base(&self) -> f32 { self.0 }
+        }
+    )+};
 }
 ```
 
-## 资源：当前值 + 基础上限
+`Resolvable` 的标记就是实现者自己，所以不需要 `type Mark = Self` 这种重复写法。
+
+## 资源：当前值 + 上限
 
 ```rust
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Health {
-    pub current: f32,    // 状态：由事件改，不走修正
+    pub current: f32,    // 状态：由事件（伤害/治疗/回复）改，不走修正
     pub base_max: f32,   // 上限的基础值：修正加在它上面
 }
 
-/// 上限那个量——资源有两个值，所以它需要一个名字。
-#[derive(Clone, Copy, Debug, Default)]
-pub struct HealthMax;
-
-impl Resolvable for Health {
-    type Mark = HealthMax;
-    fn base(&self) -> f32 { self.base_max }   // 读出的是上限
+impl Resourceable for Health {
+    fn current(&self) -> f32 { self.current }
+    fn base_max(&self) -> f32 { self.base_max }
 }
 
-impl Health {
-    /// 一步到位：读出最终上限。
-    pub fn resolved_max(&self, world: &World, owner: Entity) -> f32 {
-        self.resolved(world, owner)
-    }
-}
+pub type ModHealthMax = Modifier<Max<Health>>;
 ```
 
-## 读出接口
+**上限的标记是 `Max<T>`**——不用每个资源手写一个 `HealthMax` 那样的标记类型。
+
+## 读出：一条公式
 
 ```rust
-pub trait Resolvable {
-    /// 指向这个量的修正用哪个标记。
-    type Mark;
+/// 全项目唯一的公式：基础值 + Σ每条修正的贡献（比例按基础值算）。
+pub fn resolve_with<'a, Mark: 'a>(
+    base: f32,
+    modifiers: impl Iterator<Item = &'a Modifier<Mark>>,
+) -> f32 {
+    base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
+}
 
-    /// 基础值。
+pub trait Resolvable: Component + Sized {
     fn base(&self) -> f32;
-
-    /// 读出：基础值 + Σ每条修正的贡献。顺序无关，所以可交换、可并行。
-    fn resolve<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Self::Mark>>) -> f32
-    where Self: Sized
-    {
-        let base = self.base();
-        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
+    fn resolve<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Self>>) -> f32 {
+        resolve_with(self.base(), modifiers)
     }
+}
 
-    /// 一步到位：从世界里读出最终值（对资源池就是最终上限）。
-    fn resolved(&self, world: &World, owner: Entity) -> f32
-    where Self: Sized, Self::Mark: Send + Sync + 'static
-    {
-        self.resolve(modifiers::<Self::Mark>(world, owner))
+pub trait Resourceable: Component + Sized {
+    fn current(&self) -> f32;
+    fn base_max(&self) -> f32;
+    /// 读出**最终上限**。当前值不走这里。
+    fn resolve_max<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Max<Self>>>) -> f32 {
+        resolve_with(self.base_max(), modifiers)
     }
 }
 ```
 
-**遍历修正的迭代器**（走主人自己的 `Modifiers`，不做全库扫描）：
+### system 里怎么用（主要用法）
+
+关联列表来自 `&Modifiers`，修正来自各自的查询——**不需要 `World`**：
+
+```rust
+fn report(
+    heroes: Query<(&Strength, &Health, &Modifiers)>,
+    strength_mods: Query<&Modifier<Strength>>,
+    health_mods: Query<&Modifier<Max<Health>>>,
+) {
+    for (strength, health, related) in &heroes {
+        let s = strength.resolve(related.iter().filter_map(|m| strength_mods.get(m).ok()));
+        let max_hp = health.resolve_max(related.iter().filter_map(|m| health_mods.get(m).ok()));
+    }
+}
+```
+
+`&Modifiers` 是关系集合，直接 `.iter()` 就行（`RelationshipTarget` 给了 `collection()`，且能 `Deref` 到底层 `Vec<Entity>`）。完整可跑的例子在 `crates/voxelith_core/tests/system_read.rs`。
+
+### 只有测试/装配才需要从世界里捞
 
 ```rust
 pub fn modifiers<'w, Mark: Send + Sync + 'static>(
     world: &'w World,
     owner: Entity,
-) -> impl Iterator<Item = &'w Modifier<Mark>> {
-    world.get::<Modifiers>(owner).into_iter().flat_map(move |mods| {
-        mods.iter().filter_map(move |m| world.get::<Modifier<Mark>>(m))
-    })
-}
+) -> impl Iterator<Item = &'w Modifier<Mark>>
 ```
 
 ## 修正：一个枚举组件
@@ -133,31 +135,29 @@ pub fn modifiers<'w, Mark: Send + Sync + 'static>(
 ```rust
 #[derive(Component, Clone, Debug, VariantDefaults)]
 pub enum Modifier<Mark> {
-    Flat(Flat<Mark>),
-    Ratio(Ratio<Mark>),
+    Flat(f32, PhantomData<Mark>),
+    Ratio(f32, PhantomData<Mark>),
 }
 
 impl<Mark> Modifier<Mark> {
-    /// 这条修正贡献多少（比例按**基础值**算）。
+    pub fn flat(amount: f32) -> Self { Self::Flat(amount, PhantomData) }
+    pub fn ratio(ratio: f32) -> Self { Self::Ratio(ratio, PhantomData) }
     pub fn contribution(&self, base: f32) -> f32 {
         match self {
-            Modifier::Flat(flat) => flat.amount,        // 平加与基础值无关
-            Modifier::Ratio(ratio) => base * ratio.value,
+            Modifier::Flat(amount, _) => *amount,       // 与基础值无关
+            Modifier::Ratio(ratio, _) => base * ratio,  // 按基础值算
         }
     }
 }
 
-// `bsn!` 需要 `Clone + Default`（那两个 trait 才有自动 Template）。
-// 泛型枚举的 `#[derive(Default)]` 只认无数据的变体，所以手写一个“空平加”——贡献 0。
 impl<Mark> Default for Modifier<Mark> {
-    fn default() -> Self { Self::Flat(Flat::default()) }
+    fn default() -> Self { Self::flat(0.0) }
 }
 ```
 
-两条**必须**照做：
-
-- **泛型参数不能叫 `M`**：`Component` 派生在泛型枚举上会自己引入一个 `M`，撞名报 `E0403`（实测）。所以这里叫 `Mark`。
-- **载荷类型要手写 `Default`**：派生版本会给泛型参数加 `Default` 约束，而 `VariantDefaults` 需要在泛型上取默认值（否则报 `the trait bound Mark: Default is not satisfied`）。
+- **`PhantomData` 必须留**：合掉 `Flat<M>` / `Ratio<M>` 两个载荷类型之后，`Mark` 没被任何变体用到就报 `E0392`（泛型参数没被使用）。**但配置里不用写它**（见下）。
+- **值是有符号的**：负的平加就是减，负的比例就是按比例减；同一个量可以同时挂加和减，一起归约。
+- **两条必须照做**：泛型参数别叫 `M`（`Component` 派生在泛型枚举上会自己引入 `M`，撞名 `E0403`）；枚举要 `VariantDefaults`。
 
 ## relationship：修正指回主人
 
@@ -172,18 +172,17 @@ pub struct Modifiers(Vec<Entity>);   // 字段私有
 ```
 
 - **必须派生 `FromTemplate`**：`Entity` 没有 `Default`，走不了那条 blanket impl。
-- **字段必须私有**：`RelationshipTarget` 的要求（防止绕过关系直接改）。
-- **`linked_spawn`**：主人销毁时修正实体**自动一起消失**（实测）。“卸下装备 = 销毁那个修正实体”因此不用手写清理。
+- **字段必须私有**：`RelationshipTarget` 的要求。
+- **`linked_spawn`**：主人销毁时修正实体**自动一起消失**（实测）。
 
-## 别名：把类型绑到好写的名字上
+## 别名
 
 ```rust
-pub type ModStrength = Modifier<Strength>;   // 挂在修正实体上的组件
-pub type FlatStrength = Flat<Strength>;      // 它的两种载荷
-pub type RatioStrength = Ratio<Strength>;
+pub type ModStrength  = Modifier<Strength>;         // 单值型：标记＝类型自己
+pub type ModHealthMax = Modifier<Max<Health>>;      // 资源：标记＝上限
 ```
 
-（单值属性的载体**不需要别名**——`Strength` 本身就是那个类型。）
+（单值型的载体不需要别名——`Strength` 本身就是那个类型。修正也只留 `Mod*` 一个别名：`Flat`/`Ratio` 已经不是类型了。）
 
 ## 在 `bsn!` 里写“角色 + 它的修正”
 
@@ -191,29 +190,25 @@ pub type RatioStrength = Ratio<Strength>;
 world.spawn_scene(bsn! {
     #Hero
     Strength(10.0)                                 // 单值型：tuple 写法
-    Health { current: 30.0, base_max: 60.0 }       // 资源池：具名字段
+    Health { current: 30.0, base_max: 60.0 }       // 资源：具名字段
     Modifiers [
-        ModStrength::Flat(FlatStrength { amount: 5.0 }),
-        ModStrength::Ratio(RatioStrength { value: 0.5 }),
-        ModHealthMax::Flat(FlatHealthMax { amount: 20.0 }),
+        ModStrength::Flat(5.0),
+        ModStrength::Flat(-2.0),                   // 减
+        ModStrength::Ratio(0.5),
+        ModHealthMax::Flat(20.0),
     ]
 })
 ```
 
-**带数据的枚举变体是能写的**，但要满足三条（都实测过）：
+**带数据的枚举变体是能写的**，要满足三条（都实测过）：
 
 | 条件 | 不满足会怎样 |
 | --- | --- |
 | 枚举要有 `VariantDefaults` | 报 `no variant, associated function, or constant named default_flat` |
-| 载荷类型手写 `Default` | 报 `the trait bound Mark: Default is not satisfied` |
+| 载荷类型要能默认 | 报 `the trait bound ... : Default is not satisfied` |
 | 泛型参数别叫 `M` | `Component` 派生报 `E0403`（名字重复） |
 
-路径上要么写全 turbofish，要么用别名——**两种都行**：
-
-```rust
-Modifier::<Strength>::Flat(Flat::<Strength> { amount: 5.0 })   // 全写
-ModStrength::Flat(FlatStrength { amount: 5.0 })                // 别名（配置里用这个）
-```
+**tuple 变体可以只写第一个字段**：`Flat(f32, PhantomData<Mark>)` 在配置里就写 `ModStrength::Flat(5.0)`——宏会把没写的字段补成默认值。路径上写全 turbofish 或用别名，两种都行。
 
 **踩过的坑**：`Modifiers [...]` 列表里**不要**手写 `ModifiesOf(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 
