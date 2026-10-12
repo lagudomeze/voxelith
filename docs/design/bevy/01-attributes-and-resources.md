@@ -42,8 +42,19 @@ impl<C> Default for Add<C> {
     fn default() -> Self { Self::new(0.0) }
 }
 
+// 按基础值的比例（0.5 = +50% 基础值）
+#[derive(Component, Clone, Debug)]
+pub struct Ratio<C> {
+    pub value: f32,
+    pub _marker: PhantomData<C>,
+}
+impl<C> Default for Ratio<C> {
+    fn default() -> Self { Self { value: 0.0, _marker: PhantomData } }
+}
+
 pub type AddStrength = Add<Strength>;
-pub type AddMaxHealth = Add<MaxHealth>;   // 派生量用标记类型
+pub type AddMaxHealth = Add<MaxHealth>;       // 派生量用标记类型
+pub type RatioStrength = Ratio<Strength>;      // 比例同样用别名
 ```
 
 **实测结果**：
