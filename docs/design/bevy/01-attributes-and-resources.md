@@ -26,7 +26,7 @@ Max<Health>                       ← 上限那个量的标记（资源有两个
 Modifier<Mark> { flat, ratio }    ← 挂在“修正实体”上的组件：平加 + 比例（可以只给一个）
 
 Value / Resourceable                          ← 读出：单值型 / 资源
-resolve_with(base, mods)                      ← 全项目唯一的公式
+（公式就写在下面两个读出方法里，各一行）
 ```
 
 **修正怎么挂到主人身上不在这里**——core 只给修正组件与公式；挂法是应用侧的事（见下面“修正怎么挂”一节）。
@@ -76,30 +76,29 @@ pub type ModHealthMax = Modifier<Max<Health>>;
 ## 读出：一条公式
 
 ```rust
-/// 全项目唯一的公式：基础值 + Σ每条修正的贡献（比例按基础值算）。
-pub fn resolve_with<'a, Mark: 'a>(
-    base: f32,
-    modifiers: impl Iterator<Item = &'a Modifier<Mark>>,
-) -> f32 {
-    base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
-}
-
 pub trait Value: Component + Sized {
     fn base(&self) -> f32;
+
+    /// 读出：基础值 + Σ每条修正的贡献（比例按基础值算）。
     fn resolve<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Self>>) -> f32 {
-        resolve_with(self.base(), modifiers)
+        let base = self.base();
+        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
     }
 }
 
 pub trait Resourceable: Component + Sized {
     fn current(&self) -> f32;
     fn base_max(&self) -> f32;
+
     /// 读出**最终上限**。当前值不走这里。
     fn resolve_max<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Max<Self>>>) -> f32 {
-        resolve_with(self.base_max(), modifiers)
+        let base = self.base_max();
+        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
     }
 }
 ```
+
+那条公式**就写在这两个方法里，各一行**——不足以再抽一个名字出来（改的时候记得两处）。
 
 ### system 里怎么用（主要用法）
 

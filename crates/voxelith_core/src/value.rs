@@ -6,13 +6,15 @@
 //! 最终值 = 基础值 + Σ每条修正的贡献(基础值)      // 比例按基础值算
 //! ```
 //!
-//! 所以这里只装三件事：
+//! 所以这里只装两件事：
 //!
 //! | 东西 | 是什么 |
 //! | --- | --- |
 //! | [`Modifier<Mark>`] | 一条修正（平加 + 比例） |
-//! | [`resolve_with`] | 上面那条公式，**全项目只此一处** |
 //! | [`Value`] / [`Resourceable`] / [`Max<T>`] | 读出接口与上限标记 |
+//!
+//! 那条公式就写在两个读出方法里，**各一行**（`Value::resolve` 与
+//! `Resourceable::resolve_max`）——不足以再抽一个名字出来。
 //!
 //! ## 修正怎么挂到主人身上，这一层不管
 //!
@@ -82,19 +84,6 @@ impl<Mark> Modifier<Mark> {
     }
 }
 
-/// 读出公式：**基础值 + Σ每条修正的贡献**（比例按基础值算）。
-///
-/// 全项目**唯一的公式**——[`Value::resolve`] 与 [`Resourceable::resolve_max`] 都只是
-/// 把它包一层。将来要加“减少型比例的下限”这类护栏，落点也是这里一处。
-///
-/// 它是纯函数：不碰世界、不遍历，给定迭代器就有结果——所以顺序无关、可并行。
-pub fn resolve_with<'a, Mark: 'a>(
-    base: f32,
-    modifiers: impl Iterator<Item = &'a Modifier<Mark>>,
-) -> f32 {
-    base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
-}
-
 // ==================== 读出 ====================
 
 /// 单值型：只有一个基础值（属性、护甲、移动速度、挖掘力……）。
@@ -102,9 +91,13 @@ pub trait Value: Component + Sized {
     /// 基础值。
     fn base(&self) -> f32;
 
-    /// 读出：基础值 + Σ每条修正的贡献。
+    /// 读出：基础值 + Σ每条修正的贡献（比例按基础值算）。
+    ///
+    /// 纯函数：不碰世界、不遍历，给定迭代器就有结果——所以顺序无关、可并行。
     fn resolve<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Self>>) -> f32 {
-        resolve_with(self.base(), modifiers)
+        // 公式。（`Resourceable::resolve_max` 里有一份一样的，改的时候两处都改。）
+        let base = self.base();
+        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
     }
 }
 
@@ -118,7 +111,9 @@ pub trait Resourceable: Component + Sized {
 
     /// 读出**最终上限**。当前值不走这里。
     fn resolve_max<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Max<Self>>>) -> f32 {
-        resolve_with(self.base_max(), modifiers)
+        // 公式。（与 `Value::resolve` 同一行，只是标记类型不同。）
+        let base = self.base_max();
+        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
     }
 }
 
@@ -132,9 +127,15 @@ pub struct Max<T>(PhantomData<T>);
 mod tests {
     use super::*;
 
-    /// 测试用的量：不依赖具体属性或资源。
-    #[derive(Clone, Copy, Debug, Default)]
-    struct TestStat;
+    /// 测试用的量：一个 newtype（与 `attribute` 里的属性同构）。
+    #[derive(Component, Clone, Copy, Debug, Default)]
+    struct TestValue(pub f32);
+
+    impl Value for TestValue {
+        fn base(&self) -> f32 {
+            self.0
+        }
+    }
 
     /// **测试自己定怎么挂**：主人身上挂一串修正实体。
     ///
@@ -144,58 +145,59 @@ mod tests {
 
     fn spawn_owner(
         world: &mut World,
-        modifiers: impl IntoIterator<Item = Modifier<TestStat>>,
+        base: f32,
+        modifiers: impl IntoIterator<Item = Modifier<TestValue>>,
     ) -> Entity {
         let attached: Vec<Entity> = modifiers
             .into_iter()
             .map(|m| world.spawn(m).id())
             .collect();
-        world.spawn(Attached(attached)).id()
+        world.spawn((TestValue(base), Attached(attached))).id()
     }
 
-    fn total(world: &World, owner: Entity, base: f32) -> f32 {
+    fn total(world: &World, owner: Entity) -> f32 {
+        let value = world.get::<TestValue>(owner).unwrap();
         let attached = world.get::<Attached>(owner).unwrap();
-        resolve_with(
-            base,
+        value.resolve(
             attached
                 .0
                 .iter()
-                .filter_map(|e| world.get::<Modifier<TestStat>>(*e)),
+                .filter_map(|e| world.get::<Modifier<TestValue>>(*e)),
         )
     }
 
     #[test]
     fn no_modifiers_means_base_value() {
         let mut world = World::new();
-        let hero = spawn_owner(&mut world, []);
+        let hero = spawn_owner(&mut world, 10.0, []);
 
-        assert_eq!(total(&world, hero, 10.0), 10.0);
+        assert_eq!(total(&world, hero), 10.0);
     }
 
     #[test]
     fn flat_contributes_its_amount() {
         let mut world = World::new();
-        let hero = spawn_owner(&mut world, [Modifier::flat(5.0)]);
+        let hero = spawn_owner(&mut world, 10.0, [Modifier::flat(5.0)]);
 
-        assert_eq!(total(&world, hero, 10.0), 15.0);
+        assert_eq!(total(&world, hero), 15.0);
     }
 
     #[test]
     fn ratio_contributes_a_share_of_base() {
         let mut world = World::new();
-        let hero = spawn_owner(&mut world, [Modifier::ratio(0.5)]);
+        let hero = spawn_owner(&mut world, 10.0, [Modifier::ratio(0.5)]);
 
-        assert_eq!(total(&world, hero, 10.0), 15.0);
+        assert_eq!(total(&world, hero), 15.0);
     }
 
     /// **一条修正可以同时带平加和比例**，两者分开算再相加。
     #[test]
     fn one_modifier_can_carry_both() {
         let mut world = World::new();
-        let hero = spawn_owner(&mut world, [Modifier::new(5.0, 0.5)]);
+        let hero = spawn_owner(&mut world, 10.0, [Modifier::new(5.0, 0.5)]);
 
         // 10 + 5 + 10 × 0.5 = 20
-        assert_eq!(total(&world, hero, 10.0), 20.0);
+        assert_eq!(total(&world, hero), 20.0);
     }
 
     /// 加与减可以同时挂，一起归约。
@@ -204,6 +206,7 @@ mod tests {
         let mut world = World::new();
         let hero = spawn_owner(
             &mut world,
+            10.0,
             [
                 Modifier::flat(5.0),
                 Modifier::flat(-3.0),
@@ -213,17 +216,17 @@ mod tests {
         );
 
         // 10 + 5 - 3 + 10 × 0.5 - 10 × 0.2 = 15
-        assert_eq!(total(&world, hero, 10.0), 15.0);
+        assert_eq!(total(&world, hero), 15.0);
     }
 
     /// 平加与比例都基于基础值，所以登记顺序不影响结果。
     #[test]
     fn modifiers_commute() {
         let mut world = World::new();
-        let a = spawn_owner(&mut world, [Modifier::flat(5.0), Modifier::ratio(0.5)]);
-        let b = spawn_owner(&mut world, [Modifier::ratio(0.5), Modifier::flat(5.0)]); // 顺序反过来
+        let a = spawn_owner(&mut world, 10.0, [Modifier::flat(5.0), Modifier::ratio(0.5)]);
+        let b = spawn_owner(&mut world, 10.0, [Modifier::ratio(0.5), Modifier::flat(5.0)]); // 顺序反过来
 
-        assert_eq!(total(&world, a, 10.0), 20.0);
-        assert_eq!(total(&world, a, 10.0), total(&world, b, 10.0));
+        assert_eq!(total(&world, a), 20.0);
+        assert_eq!(total(&world, a), total(&world, b));
     }
 }

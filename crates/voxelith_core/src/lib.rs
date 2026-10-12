@@ -7,7 +7,7 @@
 //!
 //! | 模块 | 管什么 |
 //! | --- | --- |
-//! | [`value`] | **可修正的量**这一层的基础代码：修正 [`value::Modifier`]、指回主人的关系、唯一的公式 [`value::resolve_with`]、读出接口 [`value::Value`] / [`value::Resourceable`]、上限标记 [`value::Max`] |
+//! | [`value`] | **可修正的量**这一层的基础代码：修正 [`value::Modifier`]、读出接口 [`value::Value`] / [`value::Resourceable`]、上限标记 [`value::Max`] |
 //! | [`attribute`] | 六项标准属性——每个就是一个 newtype（标记＝自己）+ 修正别名 |
 //! | [`resource`] | 资源：当前值 + 上限（上限用 `Max<T>` 标记）+ 修正别名 |
 //!
