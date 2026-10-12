@@ -36,20 +36,20 @@ Value / Resourceable                          ← 读出：单值型 / 资源
 - **没有泛型载体**（`Value<M>` 那种）：单值型的标记就是它自己，资源只需要一个 `Max<T>`。
 - **没有 `resolved(world, owner)`**：写 system 时手里已经有组件和关联列表，不该回头去 `World` 里捞。见下面“system 里怎么用”。
 
-## 属性：一条宏声明一行
+## 属性：每项一个 newtype，全写开
+
+一项七行，**不上宏**——读和改都更直接：
 
 ```rust
-macro_rules! single_value {
-    ($($(#[$meta:meta])* $name:ident),+ $(,)?) => {$(
-        $(#[$meta])*
-        #[derive(Component, Clone, Copy, Debug, Default)]
-        pub struct $name(pub f32);
+/// 力量：物理行为的强度。
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Strength(pub f32);
 
-        impl Value for $name {
-            fn base(&self) -> f32 { self.0 }
-        }
-    )+};
+impl Value for Strength {
+    fn base(&self) -> f32 { self.0 }
 }
+
+// 另外五项：Dexterity / Constitution / Perception / Magic / Willpower，形状完全一样
 ```
 
 `Value` 的标记就是实现者自己，所以不需要 `type Mark = Self` 这种重复写法。

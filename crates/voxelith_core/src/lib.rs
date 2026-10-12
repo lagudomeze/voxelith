@@ -11,7 +11,7 @@
 //! | [`attribute`] | 六项标准属性——每个就是一个 newtype（标记＝自己）+ 修正别名 |
 //! | [`resource`] | 资源：当前值 + 上限（上限用 `Max<T>` 标记）+ 修正别名 |
 //!
-//! **加一项属性＝往 `attribute` 的清单里加一行**；加一条资源＝在 `resource` 里写一个 struct
+//! **加一项属性＝在 `attribute` 里照抄一段**（七行）；加一条资源＝在 `resource` 里写一个 struct
 //! 加一句 `impl`。
 
 pub mod attribute;
