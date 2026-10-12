@@ -20,8 +20,8 @@
 
 | 模块 | 管什么 |
 | --- | --- |
-| `modifier` | 修正机制：平加 `Flat` / 比例 `Ratio` / 指回主人的关系 `ModifiesOf`+`Modifiers` / 收集 `collect` 与公式 `Totals::resolve` |
-| `carrier` | 可修正的量的两种载体：单值型 `Value` / 资源池型 `Pool`，以及一步到位的读出 |
+| `modifier` | 修正：一条 `Modifier`（枚举，平加 / 比例两种载荷）、指回主人的关系 `ModifiesOf`+`Modifiers`、遍历修正的 `modifiers()` |
+| `value` | 两种载体：单值型 `Value` / 资源池型 `Pool`，以及读出接口 `Resolvable`（规则只有一条） |
 | `attribute` | 六项标准属性（标记 + 载体别名 + 修正别名） |
 | `resource` | 资源池（血量、精力；标记 + 别名） |
 

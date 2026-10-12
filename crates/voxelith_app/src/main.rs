@@ -32,25 +32,28 @@ fn setup_hero(world: &mut World) {
             Health { current: 30.0, base_max: 60.0 }
             Stamina { current: 20.0, base_max: 40.0 }
             Modifiers [
-                FlatStrength { amount: 5.0 },
-                RatioStrength { value: 0.5 },
-                FlatHealthMax { amount: 20.0 },
+                ModStrength::Flat(FlatStrength { amount: 5.0 }),
+                ModStrength::Ratio(RatioStrength { value: 0.5 }),
+                ModHealthMax::Flat(FlatHealthMax { amount: 20.0 }),
             ]
         })
         .expect("装配英雄失败")
         .id();
 
-    let modifiers = world.get::<Modifiers>(hero).map(|m| m.len()).unwrap_or(0);
-    let strength = resolve_value::<StrengthStat>(world, hero).unwrap_or_default();
-    let constitution = resolve_value::<ConstitutionStat>(world, hero).unwrap_or_default();
-    let max_hp = resolve_max::<HealthMax>(world, hero).unwrap_or_default();
-    let hp = world
-        .get::<Health>(hero)
-        .map(|h| h.current)
-        .unwrap_or_default();
+    let modifier_count = world.get::<Modifiers>(hero).map(|m| m.len()).unwrap_or(0);
+    let strength = world.get::<Strength>(hero).unwrap().resolved(world, hero);
+    let constitution = world
+        .get::<Constitution>(hero)
+        .unwrap()
+        .resolved(world, hero);
+    let health = world.get::<Health>(hero).unwrap();
+    let max_hp = health.resolved_max(world, hero);
 
-    println!("英雄 {hero:?}（{modifiers} 条修正）");
+    println!("英雄 {hero:?}（{modifier_count} 条修正）");
     println!("  力量 {strength}　基础 10 ＋ 5 平加 ＋ 50% 比例");
     println!("  体质 {constitution}　无修正");
-    println!("  血量 {hp} / {max_hp}　上限 = 基础 60 ＋ 20 平加；当前值不走修正");
+    println!(
+        "  血量 {} / {max_hp}　上限 = 基础 60 ＋ 20 平加；当前值不走修正",
+        health.current
+    );
 }

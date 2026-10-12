@@ -5,8 +5,8 @@
 //!
 //! 六项是**引擎能力**（加第七项要改代码）；它们本身**不带规则**，“力量影响什么”写在用到它的 system 里。
 
-use crate::carrier::Value;
-use crate::modifier::{Flat, Ratio};
+use crate::modifier::{Flat, Modifier, Ratio};
+use crate::value::Value;
 
 /// 力量：物理行为的强度。
 #[derive(Clone, Copy, Debug, Default)]
@@ -43,6 +43,21 @@ pub type Magic = Value<MagicStat>;
 pub type Willpower = Value<WillpowerStat>;
 
 // ---- 修正别名 ----
+//
+// `Mod*` 是**挂在修正实体上的组件**，`Flat*` / `Ratio*` 是它的两种载荷。
+
+/// 力量的修正。
+pub type ModStrength = Modifier<StrengthStat>;
+/// 敏捷的修正。
+pub type ModDexterity = Modifier<DexterityStat>;
+/// 体质的修正。
+pub type ModConstitution = Modifier<ConstitutionStat>;
+/// 感知的修正。
+pub type ModPerception = Modifier<PerceptionStat>;
+/// 魔力的修正。
+pub type ModMagic = Modifier<MagicStat>;
+/// 意志的修正。
+pub type ModWillpower = Modifier<WillpowerStat>;
 
 /// 力量平加。
 pub type FlatStrength = Flat<StrengthStat>;

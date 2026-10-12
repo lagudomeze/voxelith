@@ -1,16 +1,18 @@
 //! 修正：别的东西怎么改一个量。
 //!
-//! 一个修正 = **一个实体**（带 [`Flat`] 或 [`Ratio`]），通过 [`ModifiesOf`] 指回主人；
-//! 主人身上的 [`Modifiers`] 由关系自动维护（`linked_spawn`：主人销毁时一起清理）。
+//! 一条修正 = **一个实体**，上面挂一个 [`Modifier<Mark>`]（平加或比例），
+//! 通过 [`ModifiesOf`] 指回主人；主人身上的 [`Modifiers`] 由关系自动维护
+//! （`linked_spawn`：主人销毁时一起清理）。
 //!
-//! 读出分两步（见 `docs/design/01-attributes-and-resources.md`）：
-//! [`collect`] 收集出总和，[`Totals::resolve`] 是那个纯函数的公式。
+//! 公式不在这里，在 [`crate::value::Resolvable::resolve`]：它遍历修正，
+//! 每条问一句 [`Modifier::contribution`]。
 
 use bevy_ecs::prelude::*;
+use bevy_ecs::VariantDefaults;
 use core::marker::PhantomData;
 
 /// 平加：加一个绝对值（`+5 力量`）。
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Flat<M> {
     pub amount: f32,
     pub _marker: PhantomData<M>,
@@ -25,10 +27,18 @@ impl<M> Flat<M> {
     }
 }
 
+// 手写 `Default`：派生版本会给 `M` 加 `Default` 约束，
+// 而 `VariantDefaults` 需要在**泛型上**取默认值（见 docs/design/bevy/01-attributes-and-resources.md）。
+impl<M> Default for Flat<M> {
+    fn default() -> Self {
+        Self::new(0.0)
+    }
+}
+
 /// 比例：加“**基础值**”的一个比例（`0.5` = `+50% 基础值`）。
 ///
 /// 注意是按基础值，不是按“已经加过别的修正之后的值”——这样叠加才可交换、可并行。
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Ratio<M> {
     pub value: f32,
     pub _marker: PhantomData<M>,
@@ -39,6 +49,42 @@ impl<M> Ratio<M> {
         Self {
             value,
             _marker: PhantomData,
+        }
+    }
+}
+
+impl<M> Default for Ratio<M> {
+    fn default() -> Self {
+        Self::new(0.0)
+    }
+}
+
+/// 一条修正：平加或比例。**这就是挂在修正实体上的组件。**
+///
+/// 泛型参数叫 `Mark` 而不是 `M`：`Component` 派生在泛型枚举上会自己引入一个 `M`，
+/// 撞名报 `E0403`（实测）。
+#[derive(Component, Clone, Debug, VariantDefaults)]
+pub enum Modifier<Mark> {
+    /// 平加。
+    Flat(Flat<Mark>),
+    /// 比例。
+    Ratio(Ratio<Mark>),
+}
+
+// 手写 `Default`：`bsn!` 需要它（`Clone + Default` 才有那套自动 Template）。
+// 泛型枚举的 `#[derive(Default)]` 只认无数据的变体，所以这里直接给一个“空平加”——贡献 0。
+impl<Mark> Default for Modifier<Mark> {
+    fn default() -> Self {
+        Self::Flat(Flat::default())
+    }
+}
+
+impl<Mark> Modifier<Mark> {
+    /// 这条修正贡献多少（比例按**基础值**算）。
+    pub fn contribution(&self, base: f32) -> f32 {
+        match self {
+            Modifier::Flat(flat) => flat.amount,
+            Modifier::Ratio(ratio) => base * ratio.value,
         }
     }
 }
@@ -55,40 +101,17 @@ pub struct ModifiesOf(pub Entity);
 #[relationship_target(relationship = ModifiesOf, linked_spawn)]
 pub struct Modifiers(Vec<Entity>);
 
-/// 指向某一个量的修正总和。
-#[derive(Default, Clone, Copy, Debug, PartialEq)]
-pub struct Totals {
-    /// 平加之和。
-    pub add: f32,
-    /// 比例之和。
-    pub ratio: f32,
-}
-
-impl Totals {
-    /// 公式：`基础值 + Σ平加 + 基础值 × Σ比例`。
-    ///
-    /// 纯函数——不带世界、不遍历，顺序无关，可并行算完再归约。
-    pub fn resolve(&self, base: f32) -> f32 {
-        base + self.add + base * self.ratio
-    }
-}
-
-/// 收集指向某个标记的所有修正（只读、不计算）。
+/// 遍历主人身上的修正。
 ///
 /// 走主人自己的 [`Modifiers`] 组件 + 那几个修正实体，**不做全库扫描**。
-pub fn collect<M: Send + Sync + 'static>(world: &World, owner: Entity) -> Totals {
-    let mut totals = Totals::default();
-    if let Some(mods) = world.get::<Modifiers>(owner) {
-        for m in mods.iter() {
-            if let Some(a) = world.get::<Flat<M>>(m) {
-                totals.add += a.amount;
-            }
-            if let Some(r) = world.get::<Ratio<M>>(m) {
-                totals.ratio += r.value;
-            }
-        }
-    }
-    totals
+pub fn modifiers<'w, Mark: Send + Sync + 'static>(
+    world: &'w World,
+    owner: Entity,
+) -> impl Iterator<Item = &'w Modifier<Mark>> {
+    world
+        .get::<Modifiers>(owner)
+        .into_iter()
+        .flat_map(move |mods| mods.iter().filter_map(move |m| world.get::<Modifier<Mark>>(m)))
 }
 
 #[cfg(test)]
@@ -100,29 +123,27 @@ mod tests {
     struct TestStat;
 
     #[test]
-    fn formula_is_a_pure_function() {
-        let totals = Totals {
-            add: 5.0,
-            ratio: 0.5,
-        };
-        assert_eq!(totals.resolve(10.0), 20.0);
+    fn flat_contributes_its_amount() {
+        let mut world = World::new();
+        let hero = world.spawn_empty().id();
+        world.spawn((ModifiesOf(hero), Modifier::<TestStat>::Flat(Flat::new(5.0))));
+
+        let total: f32 = modifiers::<TestStat>(&world, hero)
+            .map(|m| m.contribution(10.0))
+            .sum();
+        assert_eq!(total, 5.0);
     }
 
-    /// 平加与比例都基于基础值，所以登记顺序不影响结果。
     #[test]
-    fn modifiers_commute() {
+    fn ratio_contributes_a_share_of_base() {
         let mut world = World::new();
+        let hero = world.spawn_empty().id();
+        world.spawn((ModifiesOf(hero), Modifier::<TestStat>::Ratio(Ratio::new(0.5))));
 
-        let a = world.spawn_empty().id();
-        world.spawn((ModifiesOf(a), Flat::<TestStat>::new(5.0)));
-        world.spawn((ModifiesOf(a), Ratio::<TestStat>::new(0.5)));
-
-        let b = world.spawn_empty().id();
-        world.spawn((ModifiesOf(b), Ratio::<TestStat>::new(0.5))); // 顺序反过来
-        world.spawn((ModifiesOf(b), Flat::<TestStat>::new(5.0)));
-
-        assert_eq!(collect::<TestStat>(&world, a).resolve(10.0), 20.0);
-        assert_eq!(collect::<TestStat>(&world, b).resolve(10.0), 20.0);
+        let total: f32 = modifiers::<TestStat>(&world, hero)
+            .map(|m| m.contribution(10.0))
+            .sum();
+        assert_eq!(total, 5.0);
     }
 
     /// 主人销毁时，修正实体随 `linked_spawn` 一起消失。
@@ -131,10 +152,14 @@ mod tests {
         let mut world = World::new();
 
         let owner = world.spawn_empty().id();
-        let m1 = world.spawn((ModifiesOf(owner), Flat::<TestStat>::new(5.0))).id();
-        let m2 = world.spawn((ModifiesOf(owner), Flat::<TestStat>::new(3.0))).id();
+        let m1 = world
+            .spawn((ModifiesOf(owner), Modifier::<TestStat>::Flat(Flat::new(5.0))))
+            .id();
+        let m2 = world
+            .spawn((ModifiesOf(owner), Modifier::<TestStat>::Flat(Flat::new(3.0))))
+            .id();
 
-        assert_eq!(collect::<TestStat>(&world, owner).resolve(10.0), 18.0);
+        assert_eq!(modifiers::<TestStat>(&world, owner).count(), 2);
 
         world.despawn(owner);
         assert!(world.get_entity(owner).is_err());
