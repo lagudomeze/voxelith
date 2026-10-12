@@ -1777,6 +1777,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "voxelith_rules"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_asset",
+ "bevy_ecs",
+ "bevy_reflect",
+ "bevy_scene",
+ "ron",
+ "serde",
+ "voxelith_core",
+]
+
+[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

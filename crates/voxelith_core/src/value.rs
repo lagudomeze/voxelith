@@ -48,7 +48,7 @@ use core::marker::PhantomData;
 ///
 /// 两个值可以同时有，也可以只写一个（另一个留 0）。
 /// 同一个量可以同时有多条修正——有加也有减，它们一起归约。
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug)]
 pub struct Modifier<Mark> {
     /// 平加。
     pub flat: f32,
@@ -56,6 +56,14 @@ pub struct Modifier<Mark> {
     pub ratio: f32,
     /// 修正指向哪个量，靠类型表达。
     _marker: PhantomData<Mark>,
+}
+
+// 手写 `Default`：派生版本会给 `Mark` 加 `Default` 约束，而
+// `#[require(Modifier<进>)]` 这类地方需要它在**泛型上**就能默认。
+impl<Mark> Default for Modifier<Mark> {
+    fn default() -> Self {
+        Self::new(0.0, 0.0)
+    }
 }
 
 impl<Mark> Modifier<Mark> {

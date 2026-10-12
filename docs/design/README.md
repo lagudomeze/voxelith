@@ -23,5 +23,5 @@
 | 文档 | 内容 |
 | --- | --- |
 | [00-component-conventions.md](00-component-conventions.md) | 组件约定：纯数据 + `Default + Clone`、字段具名、一件事一个组件、暂不派生 `Reflect` |
-| [01-attributes-and-resources.md](01-attributes-and-resources.md) | 属性与资源：六维属性各自一个组件、修正是指回主人的实体、资源只有当前值 + 一串规则组件、变动留痕 |
-| [02-workspace-layout.md](02-workspace-layout.md) | 工作区与 crate 划分：为什么现在只有 `voxelith_core` 与 `voxelith_app` |
+| [01-attributes-and-resources.md](01-attributes-and-resources.md) | 属性与资源：六维属性各自一个组件、修正是一个实体、资源只有上限可修正、派生（量由属性算出来）、变动留痕 |
+| [02-workspace-layout.md](02-workspace-layout.md) | 工作区与 crate 划分：`voxelith_core`（只有 `bevy_ecs`）/ `voxelith_rules`（规则与内容参数）/ `voxelith_app`（装配） |

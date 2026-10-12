@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `voxelith_core` | 与引擎无关的模型（目前只有[属性与资源](01-attributes-and-resources.md)） | **只有 `bevy_ecs`** |
 | `voxelith_app` | 装配层：把模型挂到一个 Bevy App 上 | `bevy_app` / `bevy_asset` / `bevy_scene` + core |
+| `voxelith_rules` | **规则层**：量之间的依赖（派生：某些量由属性算出来）、内容参数的加载 | core + `bevy_asset` / `bevy_app` / `serde` / `ron` |
 
 两条由此得到的硬性质：
 
@@ -25,6 +26,8 @@
 | `resource` | 资源池（血量、精力）——当前值 + 基础上限，上限有独立标记 + 修正别名 |
 
 **`value` 为什么是一个模块**：它放的是“可修正的量”这一层本身——修正怎么改值、值怎么读出来，这是一件事的两半，分开放反而要互相引用。属性与资源都只是它的实现者；“有哪几项属性、哪几条资源”分别在 `attribute` 与 `resource` 里。
+
+**`voxelith_rules` 为什么不并进 core**：它要读配置资产（`Handle` / `AssetLoader`），于是依赖 `bevy_asset`；而 core 刻意只有 `bevy_ecs`，保持“无资产、无渲染也能测”。规则层依赖 core 是单向的 ✓。
 
 ## 为什么现在只有两个
 

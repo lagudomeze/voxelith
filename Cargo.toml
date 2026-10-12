@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/voxelith_core", "crates/voxelith_app"]
+members = [
+    "crates/voxelith_core",
+    "crates/voxelith_rules",
+    "crates/voxelith_app",
+]
 resolver = "3"
 
 [workspace.package]
@@ -13,7 +17,13 @@ rust-version = "1.99"
 bevy_app = "0.19"
 bevy_asset = "0.19"
 bevy_scene = "0.19"
+bevy_reflect = "0.19"
 # `debug` 让组件相关的报错能打出组件名（例如“重复组件”），很值。
 bevy_ecs = { version = "0.19", features = ["debug"] }
 
+# 内容文件的格式：跟着 bevy_asset 用的版本走，免得树里两份。
+serde = { version = "1", features = ["derive"] }
+ron = "0.12"
+
 voxelith_core = { path = "crates/voxelith_core" }
+voxelith_rules = { path = "crates/voxelith_rules" }
