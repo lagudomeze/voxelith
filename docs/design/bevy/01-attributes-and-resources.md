@@ -110,20 +110,28 @@ Bundle <dynamic bundle> has duplicate components: ["bsn_spike::ModifiesOf"]
 ## 读最终值
 
 ```rust
+/// 读出规则：基础值 + Σ平加 + 基础值 × Σ比例
+/// 纯加法归约：登记顺序不影响结果，也可以并行各算一份再求和。
 fn strength_total(world: &World, owner: Entity, base: f32) -> f32 {
-    let mut sum = 0.0;
+    let mut add = 0.0;
+    let mut ratio = 0.0;
     if let Some(mods) = world.get::<Modifiers>(owner) {
         for m in mods.iter() {
-            if let Some(add) = world.get::<Add<Strength>>(m) {
-                sum += add.amount;
+            if let Some(a) = world.get::<Add<Strength>>(m) {
+                add += a.amount;
+            }
+            if let Some(r) = world.get::<Ratio<Strength>>(m) {
+                ratio += r.value;
             }
         }
     }
-    base + sum
+    base + add + base * ratio
 }
 ```
 
 走主人自己的 `Modifiers` 组件 + 那几个修正实体，**不做全库扫描**——这是"每次读时算、不缓存"能站得住的前提。
+
+**实测**：基础 10，加 +5 平加与 +50% 比例 → **20**；把这两条修正**反向登记**进 Modifiers 再读，仍是 **20**（顺序无关）。
 
 ## Bevy 现状备注
 
