@@ -1,0 +1,14 @@
+[package]
+name = "voxelith_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bevy_ecs.workspace = true
+
+[dev-dependencies]
+# 只在测试里用：验证组件形状真的能被 `bsn!` 表达。运行时不需要。
+bevy_app.workspace = true
+bevy_asset.workspace = true
+bevy_scene.workspace = true

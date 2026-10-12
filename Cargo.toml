@@ -1,0 +1,19 @@
+[workspace]
+members = ["crates/voxelith_core", "crates/voxelith_app"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[workspace.dependencies]
+# 引擎：**按需引入子 crate**，不拉整个 bevy（省编译时间）。
+# 要画东西时再加 bevy_render / bevy_sprite 那一层。
+bevy_app = "0.19"
+bevy_asset = "0.19"
+bevy_scene = "0.19"
+# `debug` 让组件相关的报错能打出组件名（例如“重复组件”），很值。
+bevy_ecs = { version = "0.19", features = ["debug"] }
+
+voxelith_core = { path = "crates/voxelith_core" }

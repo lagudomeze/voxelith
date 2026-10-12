@@ -2,7 +2,18 @@
 
 **这一篇只放真的取决于 Bevy 的取舍。** 模型见[属性与资源](../01-attributes-and-resources.md)，组件形状的约定见[组件约定](../00-component-conventions.md)。
 
-**每条都实测过**：Bevy **0.19.1**，最小依赖（`bevy_app` / `bevy_asset` / `bevy_ecs` / `bevy_scene`），编过也跑过（`D:\code\rust\voxelith-bsn-spike`，A–I 九项全过）。
+**每条都实测过**：Bevy **0.19.1**，工作区里跑通（`cargo test`），另有验证工程 `D:\code\rust\voxelith-bsn-spike`。
+
+## 命名规则（先看这条）
+
+使用方会**同时 glob 导入** `bevy_ecs::prelude::*` 与本 crate 的 prelude，所以**本 crate 的公开名字不能与 `bevy_ecs::prelude` 撞**。实测踩到两个：
+
+| 撞的名字 | 对方是什么 | 症状 | 改成 |
+| --- | --- | --- | --- |
+| `Add` | `bevy_ecs::lifecycle::Add` | `E0659` 歧义，直接用不了 | **`Flat`** |
+| `Resource` | `bevy_ecs::resource::Resource`（trait） | **被静默遮蔽**——不报错，但那一层的意思已经变了 | **`Pool`** |
+
+**自查办法**：对照 `bevy_ecs` 里的 `pub mod prelude { ... }` 名单过一遍。现在用到的名字（`Value` / `Pool` / `Flat` / `Ratio` / `Modifiers` / `ModifiesOf` / `Totals`）都不在名单里。
 
 ## 标记类型
 
@@ -15,7 +26,7 @@ pub struct StrengthStat;
 pub struct HealthMax;
 ```
 
-**为什么要这三个**：泛型组件上的 `#[derive(Clone)]` 是 imperfect derive——它会生成 `impl<M: Clone> Clone for Add<M>`。标记类型不满足，编译就停在 `the trait Clone is not implemented for StrengthStat`。给标记补上 `Clone + Copy + Default` 之后，泛型组件的 `#[derive(Component, Clone, Debug, Default)]` 全都能直接用。
+**为什么要这三个**：泛型组件上的 `#[derive(Clone)]` 是 imperfect derive——它会生成 `impl<M: Clone> Clone for Flat<M>`。标记类型不满足，编译就停在 `the trait Clone is not implemented for StrengthStat`。给标记补上 `Clone + Copy + Default` 之后，泛型组件的 `#[derive(Component, Clone, Debug, Default)]` 全都能直接用。
 
 ## 两种载体
 
@@ -27,10 +38,10 @@ pub struct Value<M> {
     pub _marker: PhantomData<M>,
 }
 
-/// 资源型：一个当前值 + 一个基础上限。
+/// 资源池型：一个当前值 + 一个基础上限。
 /// 只有当前值是状态（由事件改）；上限走同一套修正。
 #[derive(Component, Clone, Debug, Default)]
-pub struct Resource<M> {
+pub struct Pool<M> {
     pub current: f32,
     pub base_max: f32,
     pub _marker: PhantomData<M>,
@@ -41,7 +52,7 @@ pub struct Resource<M> {
 
 ```rust
 #[derive(Component, Clone, Debug, Default)]
-pub struct Add<M> { pub amount: f32, pub _marker: PhantomData<M> }
+pub struct Flat<M> { pub amount: f32, pub _marker: PhantomData<M> }
 
 #[derive(Component, Clone, Debug, Default)]
 pub struct Ratio<M> { pub value: f32, pub _marker: PhantomData<M> }
@@ -51,20 +62,20 @@ pub struct Ratio<M> { pub value: f32, pub _marker: PhantomData<M> }
 
 ```rust
 pub type Strength = Value<StrengthStat>;
-pub type Health   = Resource<HealthMax>;
+pub type Health   = Pool<HealthMax>;
 
-pub type AddStrength   = Add<StrengthStat>;
+pub type FlatStrength  = Flat<StrengthStat>;
 pub type RatioStrength = Ratio<StrengthStat>;
-pub type AddHealthMax  = Add<HealthMax>;
+pub type FlatHealthMax = Flat<HealthMax>;
 ```
 
 **实测**：别名与泛型 turbofish **都能写在 `bsn!` 里**：
 
 ```rust
 Strength { base: 10.0 }                 // 别名（具名字段）
-Add::<StrengthStat> { amount: 5.0 }     // 泛型 turbofish
-AddStrength { amount: 3.0 }             // 别名
-Health { current: 8.0, base_max: 30.0 } // 资源型
+Flat::<StrengthStat> { amount: 5.0 }    // 泛型 turbofish
+FlatStrength { amount: 3.0 }            // 别名
+Health { current: 8.0, base_max: 30.0 } // 资源池型
 ```
 
 ## 统一读取：收集 + 公式
@@ -88,7 +99,7 @@ pub fn collect<M: Send + Sync + 'static>(world: &World, owner: Entity) -> Totals
     let mut totals = Totals::default();
     if let Some(mods) = world.get::<Modifiers>(owner) {
         for m in mods.iter() {
-            if let Some(a) = world.get::<Add<M>>(m)   { totals.add   += a.amount; }
+            if let Some(a) = world.get::<Flat<M>>(m)  { totals.add   += a.amount; }
             if let Some(r) = world.get::<Ratio<M>>(m) { totals.ratio += r.value;  }
         }
     }
@@ -101,14 +112,14 @@ pub fn resolve_value<M: Send + Sync + 'static>(world: &World, owner: Entity) -> 
     Some(collect::<M>(world, owner).resolve(base))
 }
 
-/// 资源型：读出“最终上限”。当前值不走这里——它是状态。
+/// 资源池型：读出“最终上限”。当前值不走这里——它是状态。
 pub fn resolve_max<M: Send + Sync + 'static>(world: &World, owner: Entity) -> Option<f32> {
-    let base = world.get::<Resource<M>>(owner)?.base_max;
+    let base = world.get::<Pool<M>>(owner)?.base_max;
     Some(collect::<M>(world, owner).resolve(base))
 }
 ```
 
-**实测**：同一套 `collect` + `resolve` 同时服务单值型与资源型——力量 `10 +5 +50% → 20`，血量上限 `30 +20 → 50`，而**当前值 8 不被修正改动**。
+**实测**：同一套 `collect` + `resolve` 同时服务单值型与资源池型——力量 `10 +5 +50% → 20`，血量上限 `60 +20 +50% → 80`，而**当前值 30 不被修正改动**。
 
 ## relationship：修正指回主人
 
@@ -130,21 +141,21 @@ pub struct Modifiers(Vec<Entity>);   // 字段私有
 
 ```rust
 world.spawn_scene(bsn! {
-    #H
+    #Hero
     Strength { base: 10.0 }
-    Health { current: 8.0, base_max: 30.0 }
+    Health { current: 30.0, base_max: 60.0 }
     Modifiers [
-        AddStrength { amount: 5.0 },
+        FlatStrength { amount: 5.0 },
         RatioStrength { value: 0.5 },
-        AddHealthMax { amount: 20.0 },
+        FlatHealthMax { amount: 20.0 },
     ]
 })
 ```
 
-**踩过的坑**：列表里**不要**手写 `ModifiesOf(#H)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
+**踩过的坑**：列表里**不要**手写 `ModifiesOf(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 
 ```
-Bundle <dynamic bundle> has duplicate components: ["bsn_spike::ModifiesOf"]
+Bundle <dynamic bundle> has duplicate components: ["voxelith_core::stats::ModifiesOf"]
 ```
 
 ## `.bsn` 文件加载还没来

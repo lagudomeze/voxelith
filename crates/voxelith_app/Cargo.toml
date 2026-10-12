@@ -1,0 +1,12 @@
+[package]
+name = "voxelith_app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+voxelith_core.workspace = true
+bevy_ecs.workspace = true
+bevy_app.workspace = true
+bevy_asset.workspace = true
+bevy_scene.workspace = true

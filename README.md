@@ -13,6 +13,20 @@
 | 查素材出处与署名 | [docs/assets.md](docs/assets.md) |
 | 翻重构前的旧代码 | `git switch legacy`（只读） |
 
+## 代码
+
+Cargo 工作区，crate 在 `crates/`（划分理由见 [docs/design/02-workspace-layout.md](docs/design/02-workspace-layout.md)）：
+
+| crate | 放什么 | 依赖 |
+| --- | --- | --- |
+| `voxelith_core` | 与引擎无关的模型（目前只有属性与资源） | 只有 `bevy_ecs` |
+| `voxelith_app` | 装配层：把模型挂上 Bevy App | `bevy_app` / `bevy_asset` / `bevy_scene` + core |
+
+```sh
+cargo test              # 全部测试
+cargo run -p voxelith_app   # 自检：造一个英雄，打印最终属性
+```
+
 ## 文档约定
 
 - 正文只写在专门文档里；README 与 AGENTS 保持薄，只做导航。
