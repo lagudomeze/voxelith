@@ -155,7 +155,7 @@ world.spawn_scene(bsn! {
 **踩过的坑**：列表里**不要**手写 `ModifiesOf(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 
 ```
-Bundle <dynamic bundle> has duplicate components: ["voxelith_core::stats::ModifiesOf"]
+Bundle <dynamic bundle> has duplicate components: ["voxelith_core::modifier::ModifiesOf"]
 ```
 
 ## `.bsn` 文件加载还没来
