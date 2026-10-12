@@ -1,12 +1,11 @@
 //! 资源池。
 //!
 //! 每条资源有**两个**值——当前值与基础上限。**只有上限可修正**：当前值是状态，
-//! 由事件（伤害、治疗、回复）改；上限走与属性同一套修正，标记是 [`Max<T>`]。
+//! 由事件（伤害、治疗、回复）改；上限走与属性同一套修正，标记是 `Max<T>`。
 //!
 //! 哪些资源人人都有、哪些按角色配置，见 `docs/design/01-attributes-and-resources.md`。
 
-use crate::modifier::Modifier;
-use crate::value::{Max, Resourceable};
+use crate::value::{Max, Modifier, Resourceable};
 use bevy_ecs::prelude::*;
 
 /// 血量。
@@ -58,8 +57,7 @@ pub type ModStaminaMax = Modifier<Max<Stamina>>;
 mod tests {
     use super::*;
     use crate::attribute::{ModStrength, Strength};
-    use crate::modifier::{modifiers, ModifiesOf};
-    use crate::value::Resolvable;
+    use crate::value::{modifiers, ModifiesOf, Value};
 
     /// 单值型与资源上限共用同一条公式；池的当前值不被修正改动。
     #[test]

@@ -26,7 +26,7 @@ Max<Health>                       ← 上限那个量的标记（资源有两个
 Modifier<Mark> { flat, ratio }    ← 挂在“修正实体”上的组件：平加 + 比例（可以只给一个）
 
 ModifiesOf(Entity) / Modifiers(Vec<Entity>)   ← 关系：修正指回主人
-Resolvable / Resourceable                     ← 读出：单值型 / 资源
+Value / Resourceable                          ← 读出：单值型 / 资源
 resolve_with(base, mods)                      ← 全项目唯一的公式
 ```
 
@@ -44,14 +44,14 @@ macro_rules! single_value {
         #[derive(Component, Clone, Copy, Debug, Default)]
         pub struct $name(pub f32);
 
-        impl Resolvable for $name {
+        impl Value for $name {
             fn base(&self) -> f32 { self.0 }
         }
     )+};
 }
 ```
 
-`Resolvable` 的标记就是实现者自己，所以不需要 `type Mark = Self` 这种重复写法。
+`Value` 的标记就是实现者自己，所以不需要 `type Mark = Self` 这种重复写法。
 
 ## 资源：当前值 + 上限
 
@@ -83,7 +83,7 @@ pub fn resolve_with<'a, Mark: 'a>(
     base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
 }
 
-pub trait Resolvable: Component + Sized {
+pub trait Value: Component + Sized {
     fn base(&self) -> f32;
     fn resolve<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Self>>) -> f32 {
         resolve_with(self.base(), modifiers)
@@ -203,7 +203,7 @@ world.spawn_scene(bsn! {
 **踩过的坑**：`Modifiers [...]` 列表里**不要**手写 `ModifiesOf(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 
 ```
-Bundle <dynamic bundle> has duplicate components: ["voxelith_core::modifier::ModifiesOf"]
+Bundle <dynamic bundle> has duplicate components: ["voxelith_core::value::ModifiesOf"]
 ```
 
 ## `.bsn` 文件加载还没来

@@ -1,11 +1,10 @@
 //! 六项标准属性。
 //!
-//! 每项就是一个 **newtype**（`Mark = Self`），所以“修正指向哪个量”就是“修正指向这个类型”。
+//! 每项就是一个 **newtype**（标记＝它自己），所以“修正指向哪个量”就是“修正指向这个类型”。
 //!
 //! 六项是**引擎能力**（加第七项要改代码）；它们本身**不带规则**，“力量影响什么”写在用到它的 system 里。
 
-use crate::modifier::Modifier;
-use crate::value::Resolvable;
+use crate::value::{Modifier, Value};
 use bevy_ecs::prelude::*;
 
 /// 声明一项单值属性：组件 + 读出实现。
@@ -18,7 +17,7 @@ macro_rules! single_value {
             #[derive(Component, Clone, Copy, Debug, Default)]
             pub struct $name(pub f32);
 
-            impl Resolvable for $name {
+            impl Value for $name {
                 fn base(&self) -> f32 {
                     self.0
                 }
@@ -44,7 +43,7 @@ single_value! {
 
 // ---- 修正别名 ----
 //
-// 修正组件是 `Modifier<Mark>`，属性这边因为 `Mark = Self`，别名长这样：
+// 修正组件是 `Modifier<Mark>`，属性这边因为标记就是类型自己，别名长这样：
 
 /// 力量的修正。
 pub type ModStrength = Modifier<Strength>;
