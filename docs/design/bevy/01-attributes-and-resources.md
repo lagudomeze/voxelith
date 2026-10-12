@@ -2,80 +2,118 @@
 
 **这一篇只放真的取决于 Bevy 的取舍。** 模型见[属性与资源](../01-attributes-and-resources.md)，组件形状的约定见[组件约定](../00-component-conventions.md)。
 
-**每条都实测过**：Bevy **0.19.1**，最小依赖（`bevy_app` / `bevy_asset` / `bevy_ecs` / `bevy_scene`），编过也跑过。
+**每条都实测过**：Bevy **0.19.1**，最小依赖（`bevy_app` / `bevy_asset` / `bevy_ecs` / `bevy_scene`），编过也跑过（`D:\code\rust\voxelith-bsn-spike`，A–I 九项全过）。
 
-## 组件清单与派生
+## 标记类型
 
-```rust
-// 六项属性：newtype 组件，手写 Default
-#[derive(Component, Clone, Debug)]
-pub struct Strength(pub f32);
-impl Default for Strength {
-    fn default() -> Self { Self(0.0) }
-}
-// …另外五项同理
-
-// 资源：只有当前值，具名字段（将来 .bsn 文件按字段名打补丁）
-#[derive(Component, Clone, Debug, Default)]
-pub struct Health { pub current: f32 }
-#[derive(Component, Clone, Debug, Default)]
-pub struct Stamina { pub current: f32 }
-```
-
-- **不派生 `Reflect`**（P0 不需要；BSN 只要 `Clone + Default`）。
-
-## 修正：泛型加值组件 + 类型别名
+每个“可修正的量”一个零大小的标记，**必须 `Clone + Copy + Default`**：
 
 ```rust
-#[derive(Component, Clone, Debug)]
-pub struct Add<C> {
-    pub amount: f32,
-    pub _marker: PhantomData<C>,
-}
-
-impl<C> Add<C> {
-    pub fn new(amount: f32) -> Self { Self { amount, _marker: PhantomData } }
-}
-
-// `#[derive(Default)]` 会给 C 加上 Default 约束，所以手写
-impl<C> Default for Add<C> {
-    fn default() -> Self { Self::new(0.0) }
-}
-
-// 按基础值的比例（0.5 = +50% 基础值）
-#[derive(Component, Clone, Debug)]
-pub struct Ratio<C> {
-    pub value: f32,
-    pub _marker: PhantomData<C>,
-}
-impl<C> Default for Ratio<C> {
-    fn default() -> Self { Self { value: 0.0, _marker: PhantomData } }
-}
-
-pub type AddStrength = Add<Strength>;
-pub type AddMaxHealth = Add<MaxHealth>;       // 派生量用标记类型
-pub type RatioStrength = Ratio<Strength>;      // 比例同样用别名
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StrengthStat;
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HealthMax;
 ```
 
-**实测结果**：
+**为什么要这三个**：泛型组件上的 `#[derive(Clone)]` 是 imperfect derive——它会生成 `impl<M: Clone> Clone for Add<M>`。标记类型不满足，编译就停在 `the trait Clone is not implemented for StrengthStat`。给标记补上 `Clone + Copy + Default` 之后，泛型组件的 `#[derive(Component, Clone, Debug, Default)]` 全都能直接用。
 
-| 写法 | 在 `bsn!` 里 | 结果 |
-| --- | --- | --- |
-| 泛型 turbofish | `Add::<Strength> { amount: 5.0 }` | ✅ 通过 |
-| 类型别名 | `AddStrength { amount: 3.0 }` | ✅ 通过 |
-| 具名字段补丁 | 未提到的 `_marker` 自动取默认 | ✅ 通过 |
+## 两种载体
 
-两条硬性注意：
+```rust
+/// 单值型：只有一个基础值（属性这类）
+#[derive(Component, Clone, Debug, Default)]
+pub struct Value<M> {
+    pub base: f32,
+    pub _marker: PhantomData<M>,
+}
 
-- **`PhantomData<C>` 是必需的**：`Add<C>(f32)` 会因为"泛型参数 `C` 没被用到"编译不过。
-- **`Default` 必须手写**：派生版本会给 `C` 加 `Default` 约束，而标记类型不一定有。
+/// 资源型：一个当前值 + 一个基础上限。
+/// 只有当前值是状态（由事件改）；上限走同一套修正。
+#[derive(Component, Clone, Debug, Default)]
+pub struct Resource<M> {
+    pub current: f32,
+    pub base_max: f32,
+    pub _marker: PhantomData<M>,
+}
+```
 
-**派生量要有标记类型**：血量上限、护甲这类量不存字段（`01` 里"一切皆修正"），但要能被修正，就得有一个**类型**当目标——所以会有一批 `MaxHealth` / `Armour` 这样的零大小标记类型。
+## 修正：平加与比例
+
+```rust
+#[derive(Component, Clone, Debug, Default)]
+pub struct Add<M> { pub amount: f32, pub _marker: PhantomData<M> }
+
+#[derive(Component, Clone, Debug, Default)]
+pub struct Ratio<M> { pub value: f32, pub _marker: PhantomData<M> }
+```
+
+## 别名：把标记绑到名字上
+
+```rust
+pub type Strength = Value<StrengthStat>;
+pub type Health   = Resource<HealthMax>;
+
+pub type AddStrength   = Add<StrengthStat>;
+pub type RatioStrength = Ratio<StrengthStat>;
+pub type AddHealthMax  = Add<HealthMax>;
+```
+
+**实测**：别名与泛型 turbofish **都能写在 `bsn!` 里**：
+
+```rust
+Strength { base: 10.0 }                 // 别名（具名字段）
+Add::<StrengthStat> { amount: 5.0 }     // 泛型 turbofish
+AddStrength { amount: 3.0 }             // 别名
+Health { current: 8.0, base_max: 30.0 } // 资源型
+```
+
+## 统一读取：收集 + 公式
+
+```rust
+/// 指向某个量的修正总和。
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Totals { pub add: f32, pub ratio: f32 }
+
+impl Totals {
+    /// 公式：基础值 + Σ平加 + 基础值 × Σ比例。
+    /// 纯函数——不带 World、不遍历，顺序无关，可并行算完再归约。
+    pub fn resolve(&self, base: f32) -> f32 {
+        base + self.add + base * self.ratio
+    }
+}
+
+/// 遍历主人身上的修正，归约成 Totals（纯读）。走主人自己的 `Modifiers`
+/// 组件 + 那几个修正实体，**不做全库扫描**。
+pub fn collect<M: Send + Sync + 'static>(world: &World, owner: Entity) -> Totals {
+    let mut totals = Totals::default();
+    if let Some(mods) = world.get::<Modifiers>(owner) {
+        for m in mods.iter() {
+            if let Some(a) = world.get::<Add<M>>(m)   { totals.add   += a.amount; }
+            if let Some(r) = world.get::<Ratio<M>>(m) { totals.ratio += r.value;  }
+        }
+    }
+    totals
+}
+
+/// 单值型：读出“基础值 + 修正”。
+pub fn resolve_value<M: Send + Sync + 'static>(world: &World, owner: Entity) -> Option<f32> {
+    let base = world.get::<Value<M>>(owner)?.base;
+    Some(collect::<M>(world, owner).resolve(base))
+}
+
+/// 资源型：读出“最终上限”。当前值不走这里——它是状态。
+pub fn resolve_max<M: Send + Sync + 'static>(world: &World, owner: Entity) -> Option<f32> {
+    let base = world.get::<Resource<M>>(owner)?.base_max;
+    Some(collect::<M>(world, owner).resolve(base))
+}
+```
+
+**实测**：同一套 `collect` + `resolve` 同时服务单值型与资源型——力量 `10 +5 +50% → 20`，血量上限 `30 +20 → 50`，而**当前值 8 不被修正改动**。
 
 ## relationship：修正指回主人
 
 ```rust
-#[derive(Component, FromTemplate)]
+#[derive(Component, FromTemplate)]   // Entity 没有 Default，必须派生
 #[relationship(relationship_target = Modifiers)]
 pub struct ModifiesOf(pub Entity);
 
@@ -86,53 +124,29 @@ pub struct Modifiers(Vec<Entity>);   // 字段私有
 
 - **必须派生 `FromTemplate`**：`Entity` 没有 `Default`，走不了那条 blanket impl。
 - **字段必须私有**：`RelationshipTarget` 的要求（防止绕过关系直接改）。
-- **`linked_spawn` 让主人销毁时修正自动一起消失**（实测：主人 `despawn` 后两个修正实体都查不到了）。"卸下装备 = 销毁那个修正实体"因此不用手写清理。
+- **`linked_spawn`**：主人销毁时修正实体**自动一起消失**（实测）。“卸下装备 = 销毁那个修正实体”因此不用手写清理。
 
-## 在 `bsn!` 里写"角色 + 它的修正"
+## 在 `bsn!` 里写“角色 + 它的修正”
 
 ```rust
 world.spawn_scene(bsn! {
-    #E
-    Strength(10.0)
+    #H
+    Strength { base: 10.0 }
+    Health { current: 8.0, base_max: 30.0 }
     Modifiers [
         AddStrength { amount: 5.0 },
-        AddStrength { amount: 7.0 },
+        RatioStrength { value: 0.5 },
+        AddHealthMax { amount: 20.0 },
     ]
 })
 ```
 
-**踩过的坑**：列表里**不要**手写 `ModifiesOf(#E)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
+**踩过的坑**：列表里**不要**手写 `ModifiesOf(#H)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 
 ```
 Bundle <dynamic bundle> has duplicate components: ["bsn_spike::ModifiesOf"]
 ```
 
-## 读最终值
+## `.bsn` 文件加载还没来
 
-```rust
-/// 读出规则：基础值 + Σ平加 + 基础值 × Σ比例
-/// 纯加法归约：登记顺序不影响结果，也可以并行各算一份再求和。
-fn strength_total(world: &World, owner: Entity, base: f32) -> f32 {
-    let mut add = 0.0;
-    let mut ratio = 0.0;
-    if let Some(mods) = world.get::<Modifiers>(owner) {
-        for m in mods.iter() {
-            if let Some(a) = world.get::<Add<Strength>>(m) {
-                add += a.amount;
-            }
-            if let Some(r) = world.get::<Ratio<Strength>>(m) {
-                ratio += r.value;
-            }
-        }
-    }
-    base + add + base * ratio
-}
-```
-
-走主人自己的 `Modifiers` 组件 + 那几个修正实体，**不做全库扫描**——这是"每次读时算、不缓存"能站得住的前提。
-
-**实测**：基础 10，加 +5 平加与 +50% 比例 → **20**；把这两条修正**反向登记**进 Modifiers 再读，仍是 **20**（顺序无关）。
-
-## Bevy 现状备注
-
-- **`.bsn` 文件加载在 0.19 还没有**。`bevy_scene` 文档的原话是 scene 由 `bsn!` 或 "**in the future** `.bsn` asset files" 创建；管道已备（`ScenePatch` 是 `Asset`，`SceneComponent` 是"加载完自动应用"的组件），但解析器未实现。将来文件是**补丁**语义，不是从零描述实体。
+`bevy_scene` 文档的原话：scene 由 `bsn!` 或 in the future `.bsn` asset files 创建。管道已备（`ScenePatch` 是 `Asset`、`SceneComponent` 是“加载完自动应用”的组件），**解析器尚未实现**。将来文件是**补丁**语义，不是从零描述实体。
