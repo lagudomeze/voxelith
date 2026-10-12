@@ -52,7 +52,7 @@
 | C-10 | 数值：公式集中在一处，只有一个值（不做双轨与压缩） | [systems.md](systems.md) |
 | C-11 | 内容即数据：新增技能 / 状态 / 怪物 / 特性不改代码 | [content.md](content.md) |
 | C-12 | 内容可热重载，写错只报错不崩 | [content.md](content.md) |
-| C-13 | 呈现：斜 45° 等距、像素与素材规格、界面由内容驱动 | [presentation.md](presentation.md) |
+| C-13 | 呈现：斜 45° 等距（先做 2D 图块渲染）、像素与素材规格、界面由内容驱动 | [presentation.md](presentation.md) |
 | C-14 | 质量：战斗过程可查、可无渲染测试、可被外部观察 | [quality.md](quality.md) |
 | C-15 | 范围：明确不做的东西 | [scope.md](scope.md) |
 | C-16 | 物品与装备：装备部位、物品栏、装备带来的数值变化 | [items.md](items.md) |
