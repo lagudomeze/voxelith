@@ -32,7 +32,7 @@ fn enum_modifier_can_be_written_both_ways() {
             #Raw
             Strength(10.0)
             Modifiers [
-                Modifier::<Strength>::Flat(Flat::<Strength> { amount: 5.0 }),
+                Modifier::<Strength>::Flat(5.0),
             ]
         })
         .expect("spawn_scene 失败")
@@ -43,7 +43,8 @@ fn enum_modifier_can_be_written_both_ways() {
             #Aliased
             Strength(10.0)
             Modifiers [
-                ModStrength::Flat(FlatStrength { amount: 5.0 }),
+                ModStrength::Flat(5.0),
+                ModStrength::Flat(-3.0),   // 减：同一个量上可以加减并存
             ]
         })
         .expect("spawn_scene 失败")
@@ -52,7 +53,7 @@ fn enum_modifier_can_be_written_both_ways() {
     let raw_value = world.get::<Strength>(raw).unwrap().resolved(world, raw);
     let aliased_value = world.get::<Strength>(aliased).unwrap().resolved(world, aliased);
     assert_eq!(raw_value, 15.0);
-    assert_eq!(aliased_value, 15.0);
+    assert_eq!(aliased_value, 12.0); // 10 + 5 - 3
 }
 
 /// 整棵“角色 + 它的修正”都写在 `bsn!` 里——将来配置化就是这个形态。
@@ -71,9 +72,9 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
             Strength(10.0)
             Health { current: 30.0, base_max: 60.0 }
             Modifiers [
-                ModStrength::Flat(FlatStrength { amount: 5.0 }),
-                ModStrength::Ratio(RatioStrength { value: 0.5 }),
-                ModHealthMax::Flat(FlatHealthMax { amount: 20.0 }),
+                ModStrength::Flat(5.0),
+                ModStrength::Ratio(0.5),
+                ModHealthMax::Flat(20.0),
             ]
         })
         .expect("spawn_scene 失败")

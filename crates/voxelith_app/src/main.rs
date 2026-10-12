@@ -22,7 +22,7 @@ fn main() {
     app.update();
 }
 
-/// 一个英雄：两项属性、两条资源、三条修正——全部写在 `bsn!` 里。
+/// 一个英雄：两项属性、两条资源、四条修正（有加也有减）——全部写在 `bsn!` 里。
 fn setup_hero(world: &mut World) {
     let hero = world
         .spawn_scene(bsn! {
@@ -32,9 +32,10 @@ fn setup_hero(world: &mut World) {
             Health { current: 30.0, base_max: 60.0 }
             Stamina { current: 20.0, base_max: 40.0 }
             Modifiers [
-                ModStrength::Flat(FlatStrength { amount: 5.0 }),
-                ModStrength::Ratio(RatioStrength { value: 0.5 }),
-                ModHealthMax::Flat(FlatHealthMax { amount: 20.0 }),
+                ModStrength::Flat(5.0),
+                ModStrength::Flat(-2.0),
+                ModStrength::Ratio(0.5),
+                ModHealthMax::Flat(20.0),
             ]
         })
         .expect("装配英雄失败")
@@ -50,7 +51,7 @@ fn setup_hero(world: &mut World) {
     let max_hp = health.resolved_max(world, hero);
 
     println!("英雄 {hero:?}（{modifier_count} 条修正）");
-    println!("  力量 {strength}　基础 10 ＋ 5 平加 ＋ 50% 比例");
+    println!("  力量 {strength}　基础 10 ＋5 －2 ＋ 50% 比例");
     println!("  体质 {constitution}　无修正");
     println!(
         "  血量 {} / {max_hp}　上限 = 基础 60 ＋ 20 平加；当前值不走修正",

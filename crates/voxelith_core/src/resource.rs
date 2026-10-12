@@ -6,7 +6,7 @@
 //! **当前值是状态**——由事件改，不走修正；**上限走修正**，与属性共用同一套机制。
 //! 哪些资源人人都有、哪些按角色配置，见 `docs/design/01-attributes-and-resources.md`。
 
-use crate::modifier::{Flat, Modifier, Ratio};
+use crate::modifier::Modifier;
 use crate::value::Resolvable;
 use bevy_ecs::prelude::*;
 
@@ -73,15 +73,6 @@ pub type ModHealthMax = Modifier<HealthMax>;
 /// 精力上限的修正。
 pub type ModStaminaMax = Modifier<StaminaMax>;
 
-/// 血量上限平加。
-pub type FlatHealthMax = Flat<HealthMax>;
-/// 血量上限比例。
-pub type RatioHealthMax = Ratio<HealthMax>;
-/// 精力上限平加。
-pub type FlatStaminaMax = Flat<StaminaMax>;
-/// 精力上限比例。
-pub type RatioStaminaMax = Ratio<StaminaMax>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,8 +86,8 @@ mod tests {
         let mut world = World::new();
 
         let single = world.spawn(Strength(10.0)).id();
-        world.spawn((ModifiesOf(single), ModStrength::Flat(Flat::new(5.0))));
-        world.spawn((ModifiesOf(single), ModStrength::Ratio(Ratio::new(0.5))));
+        world.spawn((ModifiesOf(single), ModStrength::flat(5.0)));
+        world.spawn((ModifiesOf(single), ModStrength::ratio(0.5)));
 
         let pool = world
             .spawn(Health {
@@ -104,8 +95,8 @@ mod tests {
                 base_max: 30.0,
             })
             .id();
-        world.spawn((ModifiesOf(pool), ModHealthMax::Flat(Flat::new(20.0))));
-        world.spawn((ModifiesOf(pool), ModHealthMax::Ratio(Ratio::new(0.5))));
+        world.spawn((ModifiesOf(pool), ModHealthMax::flat(20.0)));
+        world.spawn((ModifiesOf(pool), ModHealthMax::ratio(0.5)));
 
         // 属性：10 + 5 + 10 × 0.5 = 20
         let single_value = world.get::<Strength>(single).unwrap();
@@ -123,7 +114,7 @@ mod tests {
         let mut world = World::new();
 
         let e = world.spawn(Health::default()).id();
-        world.spawn((ModifiesOf(e), ModStaminaMax::Flat(Flat::new(99.0))));
+        world.spawn((ModifiesOf(e), ModStaminaMax::flat(99.0)));
 
         let health = world.get::<Health>(e).unwrap();
         assert_eq!(health.resolved_max(&world, e), 0.0);

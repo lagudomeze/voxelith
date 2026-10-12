@@ -52,7 +52,7 @@ pub trait Resolvable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modifier::{Flat, ModifiesOf, Ratio};
+    use crate::modifier::{Modifier, ModifiesOf};
 
     /// 单值型的最简形态：newtype + `Mark = Self`。
     #[derive(Component, Clone, Copy, Debug, Default)]
@@ -75,12 +75,12 @@ mod tests {
         let mut world = World::new();
 
         let a = world.spawn(TestValue(10.0)).id();
-        modify(&mut world, a, Modifier::Flat(Flat::new(5.0)));
-        modify(&mut world, a, Modifier::Ratio(Ratio::new(0.5)));
+        modify(&mut world, a, Modifier::flat(5.0));
+        modify(&mut world, a, Modifier::ratio(0.5));
 
         let b = world.spawn(TestValue(10.0)).id();
-        modify(&mut world, b, Modifier::Ratio(Ratio::new(0.5))); // 顺序反过来
-        modify(&mut world, b, Modifier::Flat(Flat::new(5.0)));
+        modify(&mut world, b, Modifier::ratio(0.5)); // 顺序反过来
+        modify(&mut world, b, Modifier::flat(5.0));
 
         let a_resolved = world.get::<TestValue>(a).unwrap().resolved(&world, a);
         let b_resolved = world.get::<TestValue>(b).unwrap().resolved(&world, b);

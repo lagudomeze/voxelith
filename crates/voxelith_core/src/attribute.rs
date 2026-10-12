@@ -4,7 +4,7 @@
 //!
 //! 六项是**引擎能力**（加第七项要改代码）；它们本身**不带规则**，“力量影响什么”写在用到它的 system 里。
 
-use crate::modifier::{Flat, Modifier, Ratio};
+use crate::modifier::Modifier;
 use crate::value::Resolvable;
 use bevy_ecs::prelude::*;
 
@@ -47,7 +47,7 @@ single_value! {
 
 // ---- 修正别名 ----
 //
-// `Mod*` 是**挂在修正实体上的组件**，`Flat*` / `Ratio*` 是它的两种载荷。
+// 修正组件是 `Modifier<Mark>`，属性这边因为 `Mark = Self`，别名长这样：
 
 /// 力量的修正。
 pub type ModStrength = Modifier<Strength>;
@@ -61,29 +61,3 @@ pub type ModPerception = Modifier<Perception>;
 pub type ModMagic = Modifier<Magic>;
 /// 意志的修正。
 pub type ModWillpower = Modifier<Willpower>;
-
-/// 力量平加。
-pub type FlatStrength = Flat<Strength>;
-/// 敏捷平加。
-pub type FlatDexterity = Flat<Dexterity>;
-/// 体质平加。
-pub type FlatConstitution = Flat<Constitution>;
-/// 感知平加。
-pub type FlatPerception = Flat<Perception>;
-/// 魔力平加。
-pub type FlatMagic = Flat<Magic>;
-/// 意志平加。
-pub type FlatWillpower = Flat<Willpower>;
-
-/// 力量比例。
-pub type RatioStrength = Ratio<Strength>;
-/// 敏捷比例。
-pub type RatioDexterity = Ratio<Dexterity>;
-/// 体质比例。
-pub type RatioConstitution = Ratio<Constitution>;
-/// 感知比例。
-pub type RatioPerception = Ratio<Perception>;
-/// 魔力比例。
-pub type RatioMagic = Ratio<Magic>;
-/// 意志比例。
-pub type RatioWillpower = Ratio<Willpower>;
