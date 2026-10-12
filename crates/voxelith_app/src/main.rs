@@ -27,8 +27,8 @@ fn setup_hero(world: &mut World) {
     let hero = world
         .spawn_scene(bsn! {
             #Hero
-            Strength { base: 10.0 }
-            Constitution { base: 12.0 }
+            Strength(10.0)
+            Constitution(12.0)
             Health { current: 30.0, base_max: 60.0 }
             Stamina { current: 20.0, base_max: 40.0 }
             Modifiers [

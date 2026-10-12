@@ -7,10 +7,13 @@
 //!
 //! | 模块 | 管什么 |
 //! | --- | --- |
-//! | [`modifier`] | 修正：一条 [`modifier::Modifier`]（平加 / 比例）、指回主人的关系、遍历修正的迭代器 |
-//! | [`value`] | 可修正的量的两种载体（单值型 [`value::Value`] / 资源池型 [`value::Pool`]）与读出规则 [`value::Resolvable`] |
-//! | [`attribute`] | 六项标准属性（标记 + 别名） |
-//! | [`resource`] | 资源池（血量、精力……） |
+//! | [`modifier`] | 修正：一条 [`modifier::Modifier`]（平加 / 比例两种载荷）、指回主人的关系、遍历修正的迭代器 |
+//! | [`value`] | 读出接口 [`value::Resolvable`]：基础值 + Σ每条修正的贡献；以及两种形状的说明 |
+//! | [`attribute`] | 六项标准属性——每个就是一个 newtype（`Mark = Self`）+ 修正别名 |
+//! | [`resource`] | 资源池：当前值 + 基础上限（上限有独立标记）+ 修正别名 |
+//!
+//! **可修正的量不需要泛型载体**：单值型直接用自己当标记（`type Mark = Self`），
+//! 资源池用“上限”那个标记——所以“加一项属性”就是往 `attribute` 的清单里加一行。
 
 pub mod attribute;
 pub mod modifier;

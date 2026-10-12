@@ -21,7 +21,7 @@ fn test_app() -> App {
     app
 }
 
-/// 泛型 turbofish 与别名两条路都能走。
+/// 单值属性写成 `Strength(10.0)`（tuple 组件）；修正两种写法都能走。
 #[test]
 fn enum_modifier_can_be_written_both_ways() {
     let mut app = test_app();
@@ -30,9 +30,9 @@ fn enum_modifier_can_be_written_both_ways() {
     let raw = world
         .spawn_scene(bsn! {
             #Raw
-            Strength { base: 10.0 }
+            Strength(10.0)
             Modifiers [
-                Modifier::<StrengthStat>::Flat(Flat::<StrengthStat> { amount: 5.0 }),
+                Modifier::<Strength>::Flat(Flat::<Strength> { amount: 5.0 }),
             ]
         })
         .expect("spawn_scene 失败")
@@ -41,7 +41,7 @@ fn enum_modifier_can_be_written_both_ways() {
     let aliased = world
         .spawn_scene(bsn! {
             #Aliased
-            Strength { base: 10.0 }
+            Strength(10.0)
             Modifiers [
                 ModStrength::Flat(FlatStrength { amount: 5.0 }),
             ]
@@ -68,7 +68,7 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
     let hero = world
         .spawn_scene(bsn! {
             #Hero
-            Strength { base: 10.0 }
+            Strength(10.0)
             Health { current: 30.0, base_max: 60.0 }
             Modifiers [
                 ModStrength::Flat(FlatStrength { amount: 5.0 }),
