@@ -23,7 +23,7 @@ pub struct Modifier<Mark> {
     /// 比例。
     pub ratio: f32,
     /// 修正指向哪个量，靠类型表达。
-    pub _marker: PhantomData<Mark>,
+    _marker: PhantomData<Mark>,
 }
 
 impl<Mark> Modifier<Mark> {

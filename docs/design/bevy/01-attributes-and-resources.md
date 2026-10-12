@@ -152,7 +152,7 @@ impl<Mark> Modifier<Mark> {
 
 - **一条修正可以同时带平加和比例**（`+5 力量 且 +50% 基础力量`）——两者分开算、再相加，所以叠加依然可交换、可并行。
 - **值是有符号的**：`flat: -3.0` 就是减，`ratio: -0.2` 就是按比例减；同一个量上加减并存。
-- `_marker` 得是 `pub`：`bsn!` 从**外部 crate** 构造这个 struct，字段不可见会报 `E0451`（实测）。配置里不用写它（见下）。
+- `_marker` 可以是**私有**的（实测过：改成私有后 BSN 测试照样过）：`bsn!` 走的是那条 blanket `FromTemplate`，只要 `Clone + Default`，不要求字段对外可见。配置里也不用写它（见下）。
 - **struct 没有枚举那两个坑**：不需要 `VariantDefaults`，泛型参数也不怕叫 `M`（那个 `E0403` 是 `Component` 派生在泛型**枚举**上的毛病）。
 
 ## relationship：修正指回主人
