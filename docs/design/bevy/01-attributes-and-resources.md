@@ -23,9 +23,7 @@ Strength(pub f32)                 ← 单值型：newtype，标记＝它自己
 Health { current, base_max }      ← 资源：当前值 + 上限
 Max<Health>                       ← 上限那个量的标记（资源有两个值，上限要有名字）
 
-Modifier<Mark>                    ← 挂在“修正实体”上的组件
-├── Flat(f32, PhantomData<Mark>)  ← 平加（负 = 减）
-└── Ratio(f32, PhantomData<Mark>) ← 比例（负 = 按比例减）
+Modifier<Mark> { flat, ratio }    ← 挂在“修正实体”上的组件：平加 + 比例（可以只给一个）
 
 ModifiesOf(Entity) / Modifiers(Vec<Entity>)   ← 关系：修正指回主人
 Resolvable / Resourceable                     ← 读出：单值型 / 资源
@@ -130,34 +128,32 @@ pub fn modifiers<'w, Mark: Send + Sync + 'static>(
 ) -> impl Iterator<Item = &'w Modifier<Mark>>
 ```
 
-## 修正：一个枚举组件
+## 修正：一个 struct 组件
 
 ```rust
-#[derive(Component, Clone, Debug, VariantDefaults)]
-pub enum Modifier<Mark> {
-    Flat(f32, PhantomData<Mark>),
-    Ratio(f32, PhantomData<Mark>),
+#[derive(Component, Clone, Debug, Default)]
+pub struct Modifier<Mark> {
+    pub flat: f32,                    // 平加（负 = 减）
+    pub ratio: f32,                   // 比例（按基础值算；负 = 按比例减）
+    pub _marker: PhantomData<Mark>,   // 修正指向哪个量，靠类型表达
 }
 
 impl<Mark> Modifier<Mark> {
-    pub fn flat(amount: f32) -> Self { Self::Flat(amount, PhantomData) }
-    pub fn ratio(ratio: f32) -> Self { Self::Ratio(ratio, PhantomData) }
-    pub fn contribution(&self, base: f32) -> f32 {
-        match self {
-            Modifier::Flat(amount, _) => *amount,       // 与基础值无关
-            Modifier::Ratio(ratio, _) => base * ratio,  // 按基础值算
-        }
-    }
-}
+    pub fn new(flat: f32, ratio: f32) -> Self { … }
+    pub fn flat(flat: f32) -> Self { Self::new(flat, 0.0) }
+    pub fn ratio(ratio: f32) -> Self { Self::new(0.0, ratio) }
 
-impl<Mark> Default for Modifier<Mark> {
-    fn default() -> Self { Self::flat(0.0) }
+    /// 平加与比例**分开算，再相加**。
+    pub fn contribution(&self, base: f32) -> f32 {
+        self.flat + base * self.ratio
+    }
 }
 ```
 
-- **`PhantomData` 必须留**：合掉 `Flat<M>` / `Ratio<M>` 两个载荷类型之后，`Mark` 没被任何变体用到就报 `E0392`（泛型参数没被使用）。**但配置里不用写它**（见下）。
-- **值是有符号的**：负的平加就是减，负的比例就是按比例减；同一个量可以同时挂加和减，一起归约。
-- **两条必须照做**：泛型参数别叫 `M`（`Component` 派生在泛型枚举上会自己引入 `M`，撞名 `E0403`）；枚举要 `VariantDefaults`。
+- **一条修正可以同时带平加和比例**（`+5 力量 且 +50% 基础力量`）——两者分开算、再相加，所以叠加依然可交换、可并行。
+- **值是有符号的**：`flat: -3.0` 就是减，`ratio: -0.2` 就是按比例减；同一个量上加减并存。
+- `_marker` 得是 `pub`：`bsn!` 从**外部 crate** 构造这个 struct，字段不可见会报 `E0451`（实测）。配置里不用写它（见下）。
+- **struct 没有枚举那两个坑**：不需要 `VariantDefaults`，泛型参数也不怕叫 `M`（那个 `E0403` 是 `Component` 派生在泛型**枚举**上的毛病）。
 
 ## relationship：修正指回主人
 
@@ -192,23 +188,17 @@ world.spawn_scene(bsn! {
     Strength(10.0)                                 // 单值型：tuple 写法
     Health { current: 30.0, base_max: 60.0 }       // 资源：具名字段
     Modifiers [
-        ModStrength::Flat(5.0),
-        ModStrength::Flat(-2.0),                   // 减
-        ModStrength::Ratio(0.5),
-        ModHealthMax::Flat(20.0),
+        ModStrength { flat: 5.0 },
+        ModStrength { flat: -2.0 },                   // 减
+        ModStrength { ratio: 0.5 },
+        ModHealthMax { flat: 20.0 },
     ]
 })
 ```
 
-**带数据的枚举变体是能写的**，要满足三条（都实测过）：
+**没写的字段会自动补默认值**，所以配置里只写关心的那几个：`ModStrength { flat: 5.0 }`、`ModStrength { ratio: 0.5 }`、`ModStrength { flat: 5.0, ratio: 0.5 }` 都行。路径上写全 turbofish 或用别名，两种都行。
 
-| 条件 | 不满足会怎样 |
-| --- | --- |
-| 枚举要有 `VariantDefaults` | 报 `no variant, associated function, or constant named default_flat` |
-| 载荷类型要能默认 | 报 `the trait bound ... : Default is not satisfied` |
-| 泛型参数别叫 `M` | `Component` 派生报 `E0403`（名字重复） |
-
-**tuple 变体可以只写第一个字段**：`Flat(f32, PhantomData<Mark>)` 在配置里就写 `ModStrength::Flat(5.0)`——宏会把没写的字段补成默认值。路径上写全 turbofish 或用别名，两种都行。
+> **留档**：修正组件曾经用泛型枚举写过，实测过三条限制——枚举要 `VariantDefaults`（否则报 `no variant ... named default_flat`）、载荷类型要能默认、泛型参数不能叫 `M`（`Component` 派生在泛型枚举上会自己引入 `M`，撞名 `E0403`）。**改成 struct 后这些都不需要了**；将来若再用枚举组件（比如行动的状态机），记得这三条。
 
 **踩过的坑**：`Modifiers [...]` 列表里**不要**手写 `ModifiesOf(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 

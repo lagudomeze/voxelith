@@ -21,9 +21,9 @@ fn test_app() -> App {
     app
 }
 
-/// 单值属性写成 `Strength(10.0)`（tuple 组件）；修正两种写法都能走。
+/// 单值属性写成 `Strength(10.0)`（tuple 组件）；修正用泛型或别名都行。
 #[test]
-fn enum_modifier_can_be_written_both_ways() {
+fn modifier_can_be_written_with_turbofish_or_alias() {
     let mut app = test_app();
     let world = app.world_mut();
 
@@ -32,7 +32,7 @@ fn enum_modifier_can_be_written_both_ways() {
             #Raw
             Strength(10.0)
             Modifiers [
-                Modifier::<Strength>::Flat(5.0),
+                Modifier::<Strength> { flat: 5.0 },
             ]
         })
         .expect("spawn_scene 失败")
@@ -43,8 +43,8 @@ fn enum_modifier_can_be_written_both_ways() {
             #Aliased
             Strength(10.0)
             Modifiers [
-                ModStrength::Flat(5.0),
-                ModStrength::Flat(-3.0),   // 减：同一个量上可以加减并存
+                ModStrength { flat: 5.0 },
+                ModStrength { flat: -3.0 },   // 减：同一个量上可以加减并存
             ]
         })
         .expect("spawn_scene 失败")
@@ -73,15 +73,15 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
             Strength(10.0)
             Health { current: 30.0, base_max: 60.0 }
             Modifiers [
-                ModStrength::Flat(5.0),
-                ModStrength::Ratio(0.5),
-                ModHealthMax::Flat(20.0),
+                // 一条修正同时带平加和比例
+                ModStrength { flat: 5.0, ratio: 0.5 },
+                ModHealthMax { flat: 20.0 },
             ]
         })
         .expect("spawn_scene 失败")
         .id();
 
-    assert_eq!(world.get::<Modifiers>(hero).unwrap().len(), 3);
+    assert_eq!(world.get::<Modifiers>(hero).unwrap().len(), 2);
 
     let strength = world.get::<Strength>(hero).unwrap();
     assert_eq!(strength.resolve(modifiers::<Strength>(world, hero)), 20.0); // 10 + 5 + 10 × 0.5

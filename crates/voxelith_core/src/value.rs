@@ -51,5 +51,5 @@ pub trait Resourceable: Component + Sized {
 /// 上限那个量。
 ///
 /// 资源有两个值，所以上限需要一个名字；单值型只有一个值，标记就是它自己。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Max<T>(PhantomData<T>);
