@@ -1,23 +1,30 @@
 //! 值：**可修正的量**这一层的基础代码。
 //!
-//! 一个量 = 一个基础值 + 挂在它上面的一串修正。读出规则只有一条：
+//! 一个量 = 一个基础值 + 一串修正。读出规则只有一条：
 //!
 //! ```text
 //! 最终值 = 基础值 + Σ每条修正的贡献(基础值)      // 比例按基础值算
 //! ```
 //!
-//! 本模块装的就是这件事的全部：
+//! 所以这里只装三件事：
 //!
 //! | 东西 | 是什么 |
 //! | --- | --- |
-//! | [`Modifier<Mark>`] | 一条修正（平加 + 比例），挂在**修正实体**上 |
-//! | [`ModifiesOf`] / [`Modifiers`] | 修正指回主人；主人身上那份列表由关系自动维护 |
+//! | [`Modifier<Mark>`] | 一条修正（平加 + 比例） |
 //! | [`resolve_with`] | 上面那条公式，**全项目只此一处** |
-//! | [`modifiers`] | 从世界里取修正（测试/装配用；system 里用查询） |
-//! | [`Value`] / [`Resourceable`] | 读出接口：单值型 / 资源（**只到上限**） |
-//! | [`Max<T>`] | 上限那个量的标记 |
+//! | [`Value`] / [`Resourceable`] / [`Max<T>`] | 读出接口与上限标记 |
 //!
-//! 两种形状：
+//! ## 修正怎么挂到主人身上，这一层不管
+//!
+//! “哪些修正算数”是**具体系统**的事：装备、增益、只在某个条件下生效的东西，各自的生命周期
+//! 与生效规则都不同，在这里定死一种挂法反而挡路。所以读出接口只吃一个迭代器——
+//! **谁调用，谁决定喂什么**。
+//!
+//! 一份实测过的挂法（自定义 relationship + `linked_spawn` 自动清理 + 在 `bsn!` 里写成列表）
+//! 记在 `docs/design/bevy/01-attributes-and-resources.md`；应用侧的用例见
+//! `crates/voxelith_app/src/main.rs` 与 `tests/bsn.rs`。
+//!
+//! ## 两种形状
 //!
 //! | 形状 | 哪个值可修正 | 标记 |
 //! | --- | --- | --- |
@@ -25,23 +32,20 @@
 //! | **资源**（血量、精力……） | **只有上限** | [`Max<T>`] |
 //!
 //! **当前值不走修正**：它是状态，由事件（伤害、治疗、回复）改。
-//!
-//! **这里没有 `resolved(world, owner)` 这种东西**：写 system 时手里已经有组件和
-//! 关联列表（`&Modifiers`），把它里面的实体喂给修正查询即可——见 `tests/system_read.rs`。
 
 use bevy_ecs::prelude::*;
 use core::marker::PhantomData;
 
 // ==================== 修正 ====================
 
-/// 一条修正：平加 + 比例。**这就是挂在修正实体上的组件。**
+/// 一条修正：平加 + 比例。**这就是修正实体上挂的组件。**
 ///
 /// - **平加** `flat`：绝对值（`+5`；负的就是减）。
 /// - **比例** `ratio`：**基础值**的比例（`0.5` = `+50% 基础值`；负的就是按比例减）。
 ///   注意是按基础值，不是按“已经加过别的修正之后的值”——这样叠加才可交换、可并行。
 ///
 /// 两个值可以同时有，也可以只写一个（另一个留 0）。
-/// 同一个量可以同时挂多条修正——有加也有减，它们一起归约。
+/// 同一个量可以同时有多条修正——有加也有减，它们一起归约。
 #[derive(Component, Clone, Debug, Default)]
 pub struct Modifier<Mark> {
     /// 平加。
@@ -91,34 +95,6 @@ pub fn resolve_with<'a, Mark: 'a>(
     base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
 }
 
-// ==================== 关系：修正指回主人 ====================
-
-/// 修正指回被修正的角色。
-///
-/// `Entity` 没有 `Default`，所以必须派生 `FromTemplate`，`bsn!` 才能写它。
-#[derive(Component, FromTemplate)]
-#[relationship(relationship_target = Modifiers)]
-pub struct ModifiesOf(pub Entity);
-
-/// 被修正者身上自动维护的修正列表。
-#[derive(Component, Default)]
-#[relationship_target(relationship = ModifiesOf, linked_spawn)]
-pub struct Modifiers(Vec<Entity>);
-
-/// 遍历主人身上的修正。
-///
-/// 走主人自己的 [`Modifiers`] 组件 + 那几个修正实体，**不做全库扫描**。
-/// system 里不需要它——那里已经有 `&Modifiers` 和修正查询了；这是给测试与装配用的。
-pub fn modifiers<'w, Mark: Send + Sync + 'static>(
-    world: &'w World,
-    owner: Entity,
-) -> impl Iterator<Item = &'w Modifier<Mark>> {
-    world
-        .get::<Modifiers>(owner)
-        .into_iter()
-        .flat_map(move |mods| mods.iter().filter_map(move |m| world.get::<Modifier<Mark>>(m)))
-}
-
 // ==================== 读出 ====================
 
 /// 单值型：只有一个基础值（属性、护甲、移动速度、挖掘力……）。
@@ -160,18 +136,38 @@ mod tests {
     #[derive(Clone, Copy, Debug, Default)]
     struct TestStat;
 
-    fn spawn_modifier(world: &mut World, owner: Entity, m: Modifier<TestStat>) {
-        world.spawn((ModifiesOf(owner), m));
+    /// **测试自己定怎么挂**：主人身上挂一串修正实体。
+    ///
+    /// 真实项目里这可能是装备槽、增益列表，或者任何“这个系统想算的东西”。
+    #[derive(Component, Default)]
+    struct Attached(Vec<Entity>);
+
+    fn spawn_owner(
+        world: &mut World,
+        modifiers: impl IntoIterator<Item = Modifier<TestStat>>,
+    ) -> Entity {
+        let attached: Vec<Entity> = modifiers
+            .into_iter()
+            .map(|m| world.spawn(m).id())
+            .collect();
+        world.spawn(Attached(attached)).id()
     }
 
     fn total(world: &World, owner: Entity, base: f32) -> f32 {
-        resolve_with(base, modifiers::<TestStat>(world, owner))
+        let attached = world.get::<Attached>(owner).unwrap();
+        resolve_with(
+            base,
+            attached
+                .0
+                .iter()
+                .filter_map(|e| world.get::<Modifier<TestStat>>(*e)),
+        )
     }
 
     #[test]
     fn no_modifiers_means_base_value() {
         let mut world = World::new();
-        let hero = world.spawn_empty().id();
+        let hero = spawn_owner(&mut world, []);
 
         assert_eq!(total(&world, hero, 10.0), 10.0);
     }
@@ -179,8 +175,7 @@ mod tests {
     #[test]
     fn flat_contributes_its_amount() {
         let mut world = World::new();
-        let hero = world.spawn_empty().id();
-        spawn_modifier(&mut world, hero, Modifier::flat(5.0));
+        let hero = spawn_owner(&mut world, [Modifier::flat(5.0)]);
 
         assert_eq!(total(&world, hero, 10.0), 15.0);
     }
@@ -188,8 +183,7 @@ mod tests {
     #[test]
     fn ratio_contributes_a_share_of_base() {
         let mut world = World::new();
-        let hero = world.spawn_empty().id();
-        spawn_modifier(&mut world, hero, Modifier::ratio(0.5));
+        let hero = spawn_owner(&mut world, [Modifier::ratio(0.5)]);
 
         assert_eq!(total(&world, hero, 10.0), 15.0);
     }
@@ -198,8 +192,7 @@ mod tests {
     #[test]
     fn one_modifier_can_carry_both() {
         let mut world = World::new();
-        let hero = world.spawn_empty().id();
-        spawn_modifier(&mut world, hero, Modifier::new(5.0, 0.5));
+        let hero = spawn_owner(&mut world, [Modifier::new(5.0, 0.5)]);
 
         // 10 + 5 + 10 × 0.5 = 20
         assert_eq!(total(&world, hero, 10.0), 20.0);
@@ -209,11 +202,15 @@ mod tests {
     #[test]
     fn plus_and_minus_coexist() {
         let mut world = World::new();
-        let hero = world.spawn_empty().id();
-        spawn_modifier(&mut world, hero, Modifier::flat(5.0));
-        spawn_modifier(&mut world, hero, Modifier::flat(-3.0));
-        spawn_modifier(&mut world, hero, Modifier::ratio(0.5));
-        spawn_modifier(&mut world, hero, Modifier::ratio(-0.2));
+        let hero = spawn_owner(
+            &mut world,
+            [
+                Modifier::flat(5.0),
+                Modifier::flat(-3.0),
+                Modifier::ratio(0.5),
+                Modifier::ratio(-0.2),
+            ],
+        );
 
         // 10 + 5 - 3 + 10 × 0.5 - 10 × 0.2 = 15
         assert_eq!(total(&world, hero, 10.0), 15.0);
@@ -223,33 +220,10 @@ mod tests {
     #[test]
     fn modifiers_commute() {
         let mut world = World::new();
+        let a = spawn_owner(&mut world, [Modifier::flat(5.0), Modifier::ratio(0.5)]);
+        let b = spawn_owner(&mut world, [Modifier::ratio(0.5), Modifier::flat(5.0)]); // 顺序反过来
 
-        let a = world.spawn_empty().id();
-        spawn_modifier(&mut world, a, Modifier::flat(5.0));
-        spawn_modifier(&mut world, a, Modifier::ratio(0.5));
-
-        let b = world.spawn_empty().id();
-        spawn_modifier(&mut world, b, Modifier::ratio(0.5)); // 顺序反过来
-        spawn_modifier(&mut world, b, Modifier::flat(5.0));
-
-        assert_eq!(total(&world, a, 10.0), total(&world, b, 10.0));
         assert_eq!(total(&world, a, 10.0), 20.0);
-    }
-
-    /// 主人销毁时，修正实体随 `linked_spawn` 一起消失。
-    #[test]
-    fn modifiers_die_with_their_owner() {
-        let mut world = World::new();
-
-        let owner = world.spawn_empty().id();
-        let m1 = world.spawn((ModifiesOf(owner), Modifier::<TestStat>::flat(5.0))).id();
-        let m2 = world.spawn((ModifiesOf(owner), Modifier::<TestStat>::flat(3.0))).id();
-
-        assert_eq!(modifiers::<TestStat>(&world, owner).count(), 2);
-
-        world.despawn(owner);
-        assert!(world.get_entity(owner).is_err());
-        assert!(world.get_entity(m1).is_err());
-        assert!(world.get_entity(m2).is_err());
+        assert_eq!(total(&world, a, 10.0), total(&world, b, 10.0));
     }
 }

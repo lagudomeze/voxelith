@@ -25,10 +25,11 @@ Max<Health>                       ← 上限那个量的标记（资源有两个
 
 Modifier<Mark> { flat, ratio }    ← 挂在“修正实体”上的组件：平加 + 比例（可以只给一个）
 
-ModifiesOf(Entity) / Modifiers(Vec<Entity>)   ← 关系：修正指回主人
 Value / Resourceable                          ← 读出：单值型 / 资源
 resolve_with(base, mods)                      ← 全项目唯一的公式
 ```
+
+**修正怎么挂到主人身上不在这里**——core 只给修正组件与公式；挂法是应用侧的事（见下面“修正怎么挂”一节）。
 
 两条**故意不提供**的东西：
 
@@ -102,31 +103,30 @@ pub trait Resourceable: Component + Sized {
 
 ### system 里怎么用（主要用法）
 
-关联列表来自 `&Modifiers`，修正来自各自的查询——**不需要 `World`**：
+关联列表来自**你自己定义的挂法**（装备槽、增益列表……），修正来自各自的查询——**不需要 `World`**：
 
 ```rust
 fn report(
-    heroes: Query<(&Strength, &Health, &Modifiers)>,
+    heroes: Query<(&Strength, &Health, &Gear, &Buffs)>,
     strength_mods: Query<&Modifier<Strength>>,
     health_mods: Query<&Modifier<Max<Health>>>,
 ) {
-    for (strength, health, related) in &heroes {
-        let s = strength.resolve(related.iter().filter_map(|m| strength_mods.get(m).ok()));
-        let max_hp = health.resolve_max(related.iter().filter_map(|m| health_mods.get(m).ok()));
+    for (strength, health, gear, buffs) in &heroes {
+        // 面板：只看装备
+        let equipped = strength.resolve(gear.0.iter().filter_map(|m| strength_mods.get(*m).ok()));
+
+        // 结算：装备 + 增益
+        let effective = strength.resolve(
+            gear.0.iter().chain(buffs.0.iter()).filter_map(|m| strength_mods.get(*m).ok()),
+        );
+
+        // 资源上限：这里只算装备
+        let max_hp = health.resolve_max(gear.0.iter().filter_map(|m| health_mods.get(*m).ok()));
     }
 }
 ```
 
-`&Modifiers` 是关系集合，直接 `.iter()` 就行（`RelationshipTarget` 给了 `collection()`，且能 `Deref` 到底层 `Vec<Entity>`）。完整可跑的例子在 `crates/voxelith_core/tests/system_read.rs`。
-
-### 只有测试/装配才需要从世界里捞
-
-```rust
-pub fn modifiers<'w, Mark: Send + Sync + 'static>(
-    world: &'w World,
-    owner: Entity,
-) -> impl Iterator<Item = &'w Modifier<Mark>>
-```
+`Gear` / `Buffs` 是关系集合，直接 `.iter()` 就行（`RelationshipTarget` 给了 `collection()`，且能 `Deref` 到底层 `Vec<Entity>`）。完整可跑的例子在 `crates/voxelith_core/tests/system_read.rs`——**同一个公式，两个系统喂的集合不同，就有两个结果**。
 
 ## 修正：一个 struct 组件
 
@@ -155,21 +155,27 @@ impl<Mark> Modifier<Mark> {
 - `_marker` 可以是**私有**的（实测过：改成私有后 BSN 测试照样过）：`bsn!` 走的是那条 blanket `FromTemplate`，只要 `Clone + Default`，不要求字段对外可见。配置里也不用写它（见下）。
 - **struct 没有枚举那两个坑**：不需要 `VariantDefaults`，泛型参数也不怕叫 `M`（那个 `E0403` 是 `Component` 派生在泛型**枚举**上的毛病）。
 
-## relationship：修正指回主人
+## 修正怎么挂？——core 不管，这是应用侧的事
+
+`voxelith_core` 只给 [`Modifier`] 与公式，**不规定修正怎么挂到主人身上**：装备、增益、只在某个条件下生效的东西，生命周期与生效规则各不相同，定死一种挂法反而挡路。读出接口只吃一个迭代器——**谁调用，谁决定喂什么**。
+
+一份实测过的做法（住在应用侧；`crates/voxelith_app/src/main.rs` 与 `tests/bsn.rs` 里都有）：
 
 ```rust
 #[derive(Component, FromTemplate)]   // Entity 没有 Default，必须派生
-#[relationship(relationship_target = Modifiers)]
-pub struct ModifiesOf(pub Entity);
+#[relationship(relationship_target = Equipment)]
+struct EquippedOn(Entity);
 
 #[derive(Component, Default)]
-#[relationship_target(relationship = ModifiesOf, linked_spawn)]
-pub struct Modifiers(Vec<Entity>);   // 字段私有
+#[relationship_target(relationship = EquippedOn, linked_spawn)]
+struct Equipment(Vec<Entity>);       // 字段私有
 ```
 
 - **必须派生 `FromTemplate`**：`Entity` 没有 `Default`，走不了那条 blanket impl。
-- **字段必须私有**：`RelationshipTarget` 的要求。
-- **`linked_spawn`**：主人销毁时修正实体**自动一起消失**（实测）。
+- **字段必须私有**：`RelationshipTarget` 的要求（防止绕过关系直接改）。
+- **`linked_spawn`**：主人销毁时修正实体**自动一起消失**（实测）；“卸下装备 = 销毁那个实体”因此不用手写清理。
+- **它是 `RelationshipTarget`，所以 `bsn!` 里能直接写成列表**（见下）。
+- 需要“装备算、增益不算”这类区分时，**再定义一套**：`tests/system_read.rs` 里就定义了两套（装备槽 + 增益列表），面板系统只喂装备、结算系统两套都喂——同一个公式，两个结果。
 
 ## 别名
 
@@ -187,7 +193,7 @@ world.spawn_scene(bsn! {
     #Hero
     Strength(10.0)                                 // 单值型：tuple 写法
     Health { current: 30.0, base_max: 60.0 }       // 资源：具名字段
-    Modifiers [
+    Equipment [
         ModStrength { flat: 5.0 },
         ModStrength { flat: -2.0 },                   // 减
         ModStrength { ratio: 0.5 },
@@ -200,10 +206,10 @@ world.spawn_scene(bsn! {
 
 > **留档**：修正组件曾经用泛型枚举写过，实测过三条限制——枚举要 `VariantDefaults`（否则报 `no variant ... named default_flat`）、载荷类型要能默认、泛型参数不能叫 `M`（`Component` 派生在泛型枚举上会自己引入 `M`，撞名 `E0403`）。**改成 struct 后这些都不需要了**；将来若再用枚举组件（比如行动的状态机），记得这三条。
 
-**踩过的坑**：`Modifiers [...]` 列表里**不要**手写 `ModifiesOf(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
+**踩过的坑**：列表（`Equipment [...]`）里**不要**手写 `EquippedOn(#Hero)`。`RelationshipTarget` 有 `Relationship` 关联类型，宏据此知道对方是谁并**自动补上**；手写一遍就会得到：
 
 ```
-Bundle <dynamic bundle> has duplicate components: ["voxelith_core::value::ModifiesOf"]
+Bundle <dynamic bundle> has duplicate components: ["bsn::EquippedOn"]
 ```
 
 ## `.bsn` 文件加载还没来
