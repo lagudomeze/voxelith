@@ -6,9 +6,9 @@
 //!
 //! 两件值得看的事：
 //!
-//! - **挂法**：`Equipment` / `EquippedOn` 是应用侧自己定的 relationship（core 与 rules 都不认识它），
-//!   靠 [`RulesPlugin::<Equipment>`] 那个泛型参数交给规则层。`linked_spawn` 让“卸下 = 销毁修正实体”
-//!   自动成立，而且因为它是 `RelationshipTarget`，`bsn!` 里能直接写成列表。
+//! - **归属**：`Affects` / `Modifiers` 是**库自带、唯一的一条关系**（`RulesPlugin` 没有泛型参数，
+//!   所以"挂两个实例各算一半"从结构上不可能）。`Modifiers [ … ]` 里写修正，归属由宏自动补；
+//!   `linked_spawn` 让“卸下 = 销毁修正实体”自动成立。来源（装备/增益）是修正实体上的标签。
 //! - **加载闸门**：配置是异步加载的，而派生要求“配置一定在”。所以**进游戏前等齐**
 //!   （真实项目里这一等就是加载界面），system 里不留“还没到货”这条分支。
 
@@ -20,15 +20,7 @@ use bevy_scene::ScenePlugin;
 use voxelith_core::prelude::*;
 use voxelith_rules::prelude::*;
 
-/// 这条修正挂在哪个主人身上。
-#[derive(Component, FromTemplate)]
-#[relationship(relationship_target = Equipment)]
-struct EquippedOn(Entity);
 
-/// 主人身上自动维护的修正列表。
-#[derive(Component, Default)]
-#[relationship_target(relationship = EquippedOn, linked_spawn)]
-struct Equipment(Vec<Entity>);
 
 fn main() {
     let mut app = App::new();
@@ -40,8 +32,8 @@ fn main() {
             ..Default::default()
         },
         ScenePlugin,
-        // 规则层：重算有效值 + 派生。挂法（Equipment）由这里说。
-        RulesPlugin::<Equipment>::default(),
+        // 规则层：重算有效值 + 派生。归属是库自带的 Affects / Modifiers。
+        RulesPlugin,
     ));
     // 当前值的唯一写入通路（`SY-17`：治疗与扣血同一条路）
     app.add_message::<Adjust<Health>>();
@@ -59,7 +51,7 @@ fn main() {
             Constitution(12.0)
             Health(30.0)
             HealthMax(60.0)   // 当前值与上限是两个组件（别名 = Max<Health>）
-            Equipment [
+            Modifiers [
                 // 一条修正同时带平加和比例
                 ModStrength { flat: 3.0, ratio: 0.5 },
                 ModStrength { flat: -2.0 },

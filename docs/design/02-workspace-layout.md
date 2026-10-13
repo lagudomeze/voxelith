@@ -21,7 +21,7 @@
 
 | 模块 | 管什么 |
 | --- | --- |
-| `value` | **可修正的量**这一层的基础代码：修正 `Modifier`（平加 + 比例，以及它贡献多少）、**唯一的量接口 `Value`**（`raw` / `raw_mut`）、上限 `Max<Q>`（本身就是个 `Value`）、有效值缓存 `Total<T>`。**求和与写缓存、修正怎么挂，这里都不管** |
+| `value` | **可修正的量**这一层的基础代码：修正 `Modifier`（平加 + 比例）、**归属 `Affects` / `Modifiers`**（库自带、唯一）、**量接口 `Value`**（`raw` / `raw_mut`）、上限 `Max<Q>`、有效值缓存 `Total<T>`。**求和与写缓存，这里不管**（在 rules） |
 | `attribute` | 六项标准属性——每项一个 newtype（自己就是自己的标记）+ 修正别名 |
 | `resource` | 资源（血量、精力、法力）——**当前值组件 + `Max<资源>` 别名 + 回复速率** + 修正别名 |
 | `change` | 改值：当前值的唯一写入通路（`Adjust` 消息 + 落地系统） |
@@ -36,11 +36,11 @@
 
 | 模块 | 管什么 |
 | --- | --- |
-| `recalc` | **重算**：按项目给的挂法求出有效值写进 `Total`（`recompute` / `recompute_max`），并把一帧分成三段：属性 → 派生 → 回复速率与资源上限 |
+| `recalc` | **重算**：读内置的归属名单求出有效值写进 `Total`（`recompute`），并把一帧分成三段：属性 → 派生 → 回复速率与资源上限 |
 | `derived` | **派生**：`Formula<From, To>`（声明 + 配置 handle）+ 每条规则的 `apply` |
 | `config` | 规则参数资产（`RuleConfig`：一份文件一条规则） |
 
-对外只有一个入口：[`RulesPlugin<L>`](../design/bevy/02-derived-rules.md)——`L` 就是**修正怎么挂**（项目自己的 relationship）。
+对外只有一个入口：[`RulesPlugin`](../design/bevy/02-derived-rules.md)——**没有泛型参数**（归属是库自带、唯一的一条关系，所以不会出现两个实例各算一半）。
 
 ## 为什么现在只有这些
 

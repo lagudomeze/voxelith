@@ -30,7 +30,7 @@ Value { raw, raw_mut }            ← 唯一的量接口：属性/上限/回复�
 （求和不在 core —— 它在 rules 的重算系统里，见 02-derived-rules.md）
 ```
 
-**修正怎么挂到主人身上不在这里**——core 只给修正组件与公式；挂法是应用侧的事（见下面“修正怎么挂”一节）。
+**归属内置**：修正实体带 `Affects(谁)`，主人身上的名单 `Modifiers` 由引擎维护；来源（装备/增益）是修正实体上的标签组件（见下面“归属与来源”一节）。
 
 两条**故意不提供**的东西：
 
@@ -89,20 +89,20 @@ pub trait Value: Component<Mutability = Mutable> + Sized {
 }
 ```
 
-求和不在 core：它要按项目自己的挂法去找修正，所以住在 `voxelith_rules::recompute`。
+求和不在 core：它要读**归属名单**（`Modifiers`）去找修正，所以住在 `voxelith_rules::recompute`。
 
-**求和不在 traits 里**——它要按项目自己的挂法去找修正，所以住在 `voxelith_rules::recompute`（见 [02-derived-rules.md](02-derived-rules.md)）。core 只给"一条修正贡献多少"（`Modifier::contribution`）与"基础值是多少"。
+**求和不在 traits 里**——它读归属名单去找修正，住在 `voxelith_rules::recompute`（见 [02-derived-rules.md](02-derived-rules.md)）。core 只给"一条修正贡献多少"（`Modifier::contribution`）与"基础值是多少"。
 
 ### 读的人：只看 `Total`
 
 ```rust
-// 重算的人（知道挂法）：算完写进缓存
+// 重算的人（读归属名单）：算完写进缓存
 fn recompute_strength(
     mut owners: Query<(&Strength, Option<&Gear>, Option<&Modifier<Strength>>, &mut Total<Strength>)>,
     modifiers: Query<&Modifier<Strength>>,
 ) { … }
 
-// 读的人：一个挂法都不认识
+// 读的人：归属与来源都不认识
 fn report(owners: Query<(&Total<Strength>, &Total<Max<Health>>, &Health)>) {
     for (strength, max_hp, health) in &owners {
         let _ = (strength.value, max_hp.value, health.current());
@@ -110,8 +110,8 @@ fn report(owners: Query<(&Total<Strength>, &Total<Max<Health>>, &Health)>) {
 }
 ```
 
-`Gear` / `Buffs` 是关系集合，`link.collection().iter()` 就能遍历（要用到 `RelationshipSourceCollection` 这个 trait）。完整可跑的例子：重算半边见 `crates/voxelith_core/tests/system_read.rs`，真实实现见 `crates/voxelith_rules/src/recalc.rs`。
-`Gear` / `Buffs` 是关系集合，直接 `.iter()` 就行（`RelationshipTarget` 给了 `collection()`，且能 `Deref` 到底层 `Vec<Entity>`）。完整可跑的例子在 `crates/voxelith_core/tests/system_read.rs`——**同一个公式，两个系统喂的集合不同，就有两个结果**。
+`Gear` / `Buffs` 那种"两条关系"已经不用了：归属只有一条（库自带的 `Affects` / `Modifiers`），来源是修正实体上的**标签**。完整可跑的例子：`crates/voxelith_core/tests/system_read.rs`（含"只看装备那份"的按标签筛法），真实实现见 `crates/voxelith_rules/src/recalc.rs`。
+来源分类靠**标签**（`FromGear` / `FromBuff`），归属只有一条。完整可跑的例子在 `crates/voxelith_core/tests/system_read.rs`。
 
 ## 修正：一个 struct 组件
 
@@ -140,25 +140,32 @@ impl<Mark> Modifier<Mark> {
 - `_marker` 可以是**私有**的（实测过：改成私有后 BSN 测试照样过）：`bsn!` 走的是那条 blanket `FromTemplate`，只要 `Clone + Default`，不要求字段对外可见。配置里也不用写它（见下）。
 - **struct 没有枚举那两个坑**：不需要 `VariantDefaults`，泛型参数也不怕叫 `M`（那个 `E0403` 是 `Component` 派生在泛型**枚举**上的毛病）。
 
-## 修正怎么挂？——core 不管，这是应用侧的事
+## 归属与来源：一条内置关系 + 一堆标签
 
-`voxelith_core` 只给 [`Modifier`] 与公式，**不规定修正怎么挂到主人身上**：装备、增益、只在某个条件下生效的东西，生命周期与生效规则各不相同，定死一种挂法反而挡路。读出接口只吃一个迭代器——**谁调用，谁决定喂什么**。
-
-一份实测过的做法（住在应用侧；`crates/voxelith_app/src/main.rs` 与 `tests/bsn.rs` 里都有）：
+**归属**（这条修正算在谁头上）每个修正都有、且只有一个答案，所以它**内置在库里**——就这一对：
 
 ```rust
-#[derive(Component, FromTemplate)]   // Entity 没有 Default，必须派生
-#[relationship(relationship_target = Equipment)]
-struct EquippedOn(Entity);
+#[derive(Component, FromTemplate)]
+#[relationship(relationship_target = Modifiers, allow_self_referential)]
+pub struct Affects(pub Entity);      // 修正 → 主人；允许自指（派生就是"给自己挂一条"）
 
 #[derive(Component, Default)]
-#[relationship_target(relationship = EquippedOn, linked_spawn)]
-struct Equipment(Vec<Entity>);       // 字段私有
+#[relationship_target(relationship = Affects, linked_spawn)]
+pub struct Modifiers(Vec<Entity>);   // 主人 → 名单；字段私有
 ```
 
-- **必须派生 `FromTemplate`**：`Entity` 没有 `Default`，走不了那条 blanket impl。
-- **字段必须私有**：`RelationshipTarget` 的要求（防止绕过关系直接改）。
+写场景时用名单：`Modifiers [ ModStrength { flat: 5.0 }, ModHealthMax { flat: 20.0 } ]`——`Affects` 由宏自动补。
+
+**来源**（装备？增益？天赋？）是修正实体上的**标签组件**（`FromGear` / `FromBuff(那件东西)`……），
+不是第二条归属关系。想看"装备给了多少"就按标签筛 ✗ 再拉一条关系的话，两个重算系统会各算一半、互相覆盖（**静默错**，实测见 [02-derived-rules.md](02-derived-rules.md)）。
+
+实测要点：
+
+- **`Affects` 的字段要 `pub`**（读的人、Rust 侧构造都要用）；`Modifiers` 的 `Vec` 字段**必须私有**（`RelationshipTarget` 的要求）。
 - **`linked_spawn`**：主人销毁时修正实体**自动一起消失**（实测）；“卸下装备 = 销毁那个实体”因此不用手写清理。
+- **名单会自动出现、也会自动消失**：插一条修正就有，最后一条没了组件本身也没了 ✗ 所以查询要用 `Option<&Modifiers>`。
+- **`allow_self_referential`**：派生给自己挂修正要用它；默认关系**不许**自指。
+- **别把归属塞进 `Modifier` 自己**（`who` 字段）：那样 `Modifier` 就是关系组件，`bsn!` 的名单写法会 `Bundle has duplicate components` ✗ 实测（见 [02-derived-rules.md](02-derived-rules.md)）。
 - **它是 `RelationshipTarget`，所以 `bsn!` 里能直接写成列表**（见下）。
 - 需要“装备算、增益不算”这类区分时，**再定义一套**：`tests/system_read.rs` 里就定义了两套（装备槽 + 增益列表），面板系统只喂装备、结算系统两套都喂——同一个公式，两个结果。
 

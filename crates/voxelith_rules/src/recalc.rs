@@ -1,15 +1,10 @@
 //! 重算：把「raw + Σ修正」写进 [`Total`] 缓存。
 //!
-//! 这一层是**唯一认识挂法**的地方：每个项目自己决定修正怎么挂在主人身上（装备槽、增益列表……），
-//! 然后由这里的泛型系统按那个挂法去求和。读的人（UI、伤害、AI）只看 `Total`，不认识挂法。
+//! **只有一个泛型系统**、**没有泛型插件**：归属是库自带的唯一一条关系（[`Affects`] /
+//! [`Modifiers`]），资源上限也只是个 [`Value`]（`Max<Health>`）。
 //!
-//! 求和的两条来源：
-//!
-//! 1. **自己身上**那条同类型的修正（`Modifier<Q>`）——派生规则就是往这里写；
-//! 2. 挂着的那串修正实体（由泛型参数 `L` 决定的 relationship）。
-//!
-//! **只有一个泛型系统**：资源的上限也是个 [`Value`]（`Max<Health>`），所以"重算上限"就是
-//! `recompute::<Max<Health>, L>`，不需要第二条路径。
+//! 求和就是把主人名单上的修正都加起来——读的人（UI、伤害、AI）只看 `Total`，不认识归属。
+//! 派生也是同一个形状：它给自己挂一条修正（自指），于是"自己那条"和别人的修正**同一条路径**。
 //!
 //! ## 顺序
 //!
@@ -24,7 +19,6 @@
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
-use bevy_ecs::relationship::RelationshipSourceCollection;
 use voxelith_core::prelude::*;
 
 /// 第一段：六项属性的有效值。
@@ -39,19 +33,17 @@ pub struct DerivedRules;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RecalcTotals;
 
-/// 重算一个量要的四样东西。
+/// 重算一个量要的三样东西。
 ///
-/// 用 `QueryData` 给这个"四元组"起个名字：签名短了，每个字段也有名字——
-/// 比 `Query<(&Q, Option<&L>, Option<&Modifier<Q>>, &mut Total<Q>)>` 那种靠位置记的写法好读。
+/// 用 `QueryData` 给这个"三元组"起个名字：签名短，字段也有名字。
+/// `list` 是 `Option`：**最后一个修正没了，名单组件本身会消失**。
 #[derive(QueryData)]
 #[query_data(mutable)]
-pub struct RecomputeParts<Q: Value, L: RelationshipTarget> {
+pub struct RecomputeParts<Q: Value> {
     /// 量自己（取 raw）。
     pub value: &'static Q,
-    /// 挂法：这条链接上的修正实体（没有链接就是空的）。
-    pub link: Option<&'static L>,
-    /// 自己身上那条修正（派生规则写在这里）。
-    pub own: Option<&'static Modifier<Q>>,
+    /// 归属名单（库自带的那条关系；没有就是空的）。
+    pub list: Option<&'static Modifiers>,
     /// 有效值缓存（写它）。
     pub total: &'static mut Total<Q>,
 }
@@ -59,25 +51,16 @@ pub struct RecomputeParts<Q: Value, L: RelationshipTarget> {
 /// 重算一个量的有效值。
 ///
 /// 只在**值真的变了**的时候写——否则每帧都标记变更，下游的变更检测被连锁触发。
-pub fn recompute<Q, L>(
-    mut owners: Query<RecomputeParts<Q, L>>,
+pub fn recompute<Q: Value>(
+    mut owners: Query<RecomputeParts<Q>>,
     modifiers: Query<&Modifier<Q>>,
-) where
-    Q: Value,
-    L: RelationshipTarget,
-{
+) {
     for mut item in &mut owners {
         let raw = item.value.raw();
         let mut resolved = raw;
 
-        // 自己身上那条（派生规则写在这里）
-        if let Some(own) = item.own {
-            resolved += own.contribution(raw);
-        }
-
-        // 挂着的那些
-        if let Some(link) = item.link {
-            for entity in link.collection().iter() {
+        if let Some(list) = item.list {
+            for entity in list.iter() {
                 if let Ok(modifier) = modifiers.get(entity) {
                     resolved += modifier.contribution(raw);
                 }
@@ -91,7 +74,7 @@ pub fn recompute<Q, L>(
 }
 
 /// 把重算系统挂上去，并把三段串起来。由 [`crate::RulesPlugin`] 调用。
-pub(crate) fn install<L: RelationshipTarget>(app: &mut App) {
+pub(crate) fn install(app: &mut App) {
     app.configure_sets(
         Update,
         (RecalcAttributes, DerivedRules, RecalcTotals).chain(),
@@ -100,12 +83,12 @@ pub(crate) fn install<L: RelationshipTarget>(app: &mut App) {
     app.add_systems(
         Update,
         (
-            recompute::<Strength, L>,
-            recompute::<Dexterity, L>,
-            recompute::<Constitution, L>,
-            recompute::<Perception, L>,
-            recompute::<Magic, L>,
-            recompute::<Willpower, L>,
+            recompute::<Strength>,
+            recompute::<Dexterity>,
+            recompute::<Constitution>,
+            recompute::<Perception>,
+            recompute::<Magic>,
+            recompute::<Willpower>,
         )
             .in_set(RecalcAttributes),
     );
@@ -114,13 +97,13 @@ pub(crate) fn install<L: RelationshipTarget>(app: &mut App) {
         Update,
         (
             // 回复速率也是 Value
-            recompute::<HealthRegen, L>,
-            recompute::<StaminaRegen, L>,
-            recompute::<ManaRegen, L>,
+            recompute::<HealthRegen>,
+            recompute::<StaminaRegen>,
+            recompute::<ManaRegen>,
             // 资源上限 = Value<Max<资源>>，走同一个泛型系统
-            recompute::<Max<Health>, L>,
-            recompute::<Max<Stamina>, L>,
-            recompute::<Max<Mana>, L>,
+            recompute::<Max<Health>>,
+            recompute::<Max<Stamina>>,
+            recompute::<Max<Mana>>,
         )
             .in_set(RecalcTotals),
     );

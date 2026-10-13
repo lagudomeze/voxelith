@@ -38,7 +38,7 @@ world.spawn_scene(bsn! {
 })
 ```
 
-**没有关系、没有来源实体**：`#[require(Modifier<To>)]` 把结果格子放在同一个实体上，`sync` 读自己身上的 `Total<From>`、写自己身上那条修正。所以"自己的体质影响自己的血量上限"在结构上就是字面意思。
+**公式在主人身上，结果是一条"指向自己"的普通修正**：`Formula::apply` 读 `Total<From>`、算出值，写进主人自己那条 `Modifier<To>`（没有就补一条 `Affects(自己)` + 它）。所以"自己的体质影响自己的血量上限"在结构上就是字面意思，而重算看到的仍是普通修正。
 
 ## 有效值缓存：`Total<T>` + `#[require]`
 
@@ -63,36 +63,60 @@ pub struct Max<Q: Value>(pub f32, PhantomData<Q>);   // 上限，本身也是个
 
 ## 三段顺序 + 一个插件
 
-派生是"读属性、写修正"，资源上限又是"读修正、写缓存"，所以一帧分三段，由 `RulesPlugin::<L>` 一次配好：
+派生是"读属性、写修正"，资源上限又是"读修正、写缓存"，所以一帧分三段，由 `RulesPlugin` 一次配好：
 
 ```text
 RecalcAttributes（属性）→ DerivedRules（派生写修正）→ RecalcTotals（回复速率 + 资源上限）→ 读者
 ```
 
 ```rust
-app.add_plugins(RulesPlugin::<Equipment>::default());   // Equipment 是项目自己的 relationship
+app.add_plugins(RulesPlugin);   // 没有泛型参数
 ```
 
-重算系统是**泛型**的，插件里一行注册一个组合；`L` 就是"修正怎么挂"：
+**归属是库自带的唯一一条关系**（`Affects` / `Modifiers`，无泛型），重算只认它：
 
 ```rust
-pub fn recompute<Q, L>(
-    mut owners: Query<(&Q, Option<&L>, Option<&Modifier<Q>>, &mut Total<Q>)>,
-    modifiers: Query<&Modifier<Q>>,
-) where Q: Value, L: RelationshipTarget
-{ … }
+#[derive(QueryData)] #[query_data(mutable)]
+pub struct RecomputeParts<Q: Value> {
+    pub value: &'static Q,
+    pub list: Option<&'static Modifiers>,     // 归属名单
+    pub total: &'static mut Total<Q>,
+}
 
 // 插件里
-app.add_systems(Update, (recompute::<Strength, L>, …).in_set(RecalcAttributes));
+app.add_systems(Update, (recompute::<Strength>, …).in_set(RecalcAttributes));
 ```
 
-`L` 上要 `RelationshipTarget`（Bevy 自带）才能取到关联实体：
+**`Option<&Modifiers>` 不能省**：`Modifiers` 是"最后一个修正没了就自己消失"的组件 ✗
+（实测），不写成 `Option` 的话，光有属性、没有任何修正的实体会**不匹配查询**，它的 `Total` 就永远不写 = 0。
+
+## 归属为什么是独立关系，而不是塞进 `Modifier`
+
+第一版把归属做成 `Modifier` 自己的字段（`who`），想把"算在谁头上"和修正合成一个组件。实测**两条路都堵**：
+
+| 试法 | 结果 |
+| --- | --- |
+| `Modifier<Mark> { who, flat, ratio }` + `bsn!` 里用名单挂 | ✗ `` Bundle has duplicate components: ["Modifier<Strength>"] `` ——`Modifier` 自己就是关系组件时，场景机制给每个 child 还会再插一次关系组件 |
+| 同上 + 组件派生 `FromTemplate`，改成 `ModStrength { who: #Hero }` 写法 | ✗ 名单写法崩（`Failed to specify an entity for this EntityTemplate`）；**派生与名单写法二选一** |
+
+所以归属拆成独立的一对：`Affects(Entity)`（修正 → 主人，允许自指）+ `Modifiers(Vec<Entity>)`（主人 → 名单，自动维护、`linked_spawn` 清理）。
+
+## 为什么归属必须唯一（实测的静默错）
+
+在没有内置归属的版本里，项目自己定义链接、插件带泛型参数 `L`。于是"装备一条链接、增益另一条"时，人们会挂两个插件：
+
+```
+[只挂 Gear]  total = Some(15.0)   // 10 + 5；+2 那条增益看不见
+[两个都挂]   total = Some(15.0)   // 正确值是 17 ✗ 没有报错、没有 panic
+```
+
+两个实例各注册一套 `recompute::<Strength, Gear>` / `recompute::<Strength, Buffs>`——**都合法、都会跑**，各写同一个 `Total`，**谁在后谁说了算** ✗ 而且顺序不稳定 ✗
+归属内置之后这种配置**不可能写出来**（只有一个 `RulesPlugin`、一条归属关系 ✓）。来源要用标签区分：
 
 ```rust
-for entity in link.collection().iter() { … }   // 要用到 RelationshipSourceCollection 这个 trait
+world.spawn((Affects(hero), FromGear, ModStrength::flat(5.0)));
+world.spawn((Affects(hero), FromBuff, ModStrength::flat(2.0)));
 ```
-
-**`Option<&L>` 不能省**：没有这条链接的实体（光有属性、没有装备）如果不匹配查询，它的 `Total` 就**永远不写 = 0**。
 
 ## 实测记下来的六条
 
@@ -162,7 +186,7 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
     /// 应用这条公式：把结果算出来，写进结果那条修正。
     pub fn apply(
         configs: Res<Assets<RuleConfig>>,
-        mut owners: Query<ApplyParts<From, To>>,
+        mut owners: Query<(Entity, &Total<From>, &Formula<From, To>, Option<&mut Modifier<To>>)>,
     ) { … }
 }
 
@@ -203,19 +227,18 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
 前提是 `Formula` 要**手写 `FromTemplate`**（字段里有 `Handle`）——那套派生要求每个字段自己实现 `Template`，才会去要 `Unpin`。不需要手写派生的组件不会撞上这条。
 ## 长查询用 `QueryData` 起个名字（不要 `#[allow(clippy::type_complexity)]`）
 
-重算的查询是个四元组、派生的 `sync` 是个三元组，直接写出来 clippy 会喊 `type_complexity` ✗ 拿 `allow` 糊过去更糟——读的人得靠**位置**记"第三个元素是什么"。给它们起名字：
+重算的查询、派生 `apply` 的查询都不短，直接写出来 clippy 会喊 `type_complexity` ✗ 拿 `allow` 糊过去更糟——读的人得靠**位置**记"第三个元素是什么"。给它们起名字：
 
 ```rust
 #[derive(QueryData)]
 #[query_data(mutable)]
-pub struct RecomputeParts<Q: Value, L: RelationshipTarget> {
+pub struct RecomputeParts<Q: Value> {
     pub value: &'static Q,
-    pub link: Option<&'static L>,
-    pub own: Option<&'static Modifier<Q>>,
+    pub list: Option<&'static Modifiers>,
     pub total: &'static mut Total<Q>,
 }
 
-pub fn recompute<Q, L>(mut owners: Query<RecomputeParts<Q, L>>, …) {
+pub fn recompute<Q: Value>(mut owners: Query<RecomputeParts<Q>>, …) {
     for mut item in &mut owners {
         let raw = item.value.raw();
         …

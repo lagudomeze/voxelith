@@ -176,6 +176,7 @@ mod tests {
     /// 每条资源的修正各指各的（血量上限与法力上限是两个不同的标记）。
     #[test]
     fn modifier_targets_are_distinct() {
+        // 这两个测试只看公式，归属随便填
         let health = ModHealthMax::flat(5.0);
         let mana = ModManaMax::flat(5.0);
 

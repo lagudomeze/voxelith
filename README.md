@@ -20,8 +20,8 @@ Cargo 工作区：crate 在 `crates/`，**内容（配置等）在根目录 `ass
 | crate | 放什么 | 依赖 |
 | --- | --- | --- |
 | `voxelith_core` | 与引擎无关的模型：可修正的量、六项属性、资源 | 只有 `bevy_ecs` |
-| `voxelith_rules` | 规则层：有效值缓存的重算、派生（量之间的依赖）、内容参数加载 | core + `bevy_app` / `bevy_asset` / `serde` / `ron` |
-| `voxelith_app` | 装配层：把模型挂上 Bevy App（含挂法与加载闸门） | `bevy_app` / `bevy_asset` / `bevy_scene` + core + rules |
+| `voxelith_rules` | 规则层：有效值缓存的重算、派生（量之间的依赖）、内容参数加载（一个无泛型的 `RulesPlugin`） | core + `bevy_app` / `bevy_asset` / `serde` / `ron` |
+| `voxelith_app` | 装配层：把模型挂上 Bevy App（含加载闸门） | `bevy_app` / `bevy_asset` / `bevy_scene` + core + rules |
 
 ```sh
 cargo test                  # 全部测试

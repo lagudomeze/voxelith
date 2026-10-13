@@ -1,4 +1,7 @@
-//! 派生规则的关键行为：bsn 里写路径、值算对、**属性修正会流进派生**、缺配置要吵、从文件真加载。
+//! 派生公式的关键行为：bsn 里写路径、值算对、**属性修正会流进派生**、缺配置要吵、从文件真加载。
+//!
+//! 注意这里**没有任何链接类型**——归属是库自带的 `Affects` / `Modifiers`，所以
+//! `RulesPlugin` 没有泛型参数，"挂两个插件各算一半"那种情况从结构上就不可能。
 
 use bevy_app::prelude::*;
 use bevy_asset::{AssetPlugin, AssetServer, Assets, Handle};
@@ -8,19 +11,7 @@ use bevy_scene::ScenePlugin;
 use voxelith_core::prelude::*;
 use voxelith_rules::prelude::*;
 
-/// 应用侧自己定的挂法：修正实体指回主人。
-///
-/// **规则层不认识它**——它是靠 `RulesPlugin::<Equipment>` 那个泛型参数传进去的。
-#[derive(Component, FromTemplate)]
-#[relationship(relationship_target = Equipment)]
-struct EquippedOn(Entity);
-
-#[derive(Component, Default)]
-#[relationship_target(relationship = EquippedOn, linked_spawn)]
-struct Equipment(Vec<Entity>);
-
-/// 资产根是**仓库根的 `assets/`**（内容与代码分开放），用绝对路径钉住，免得受工作目录影响。
-/// `CARGO_MANIFEST_DIR` 是 `crates/voxelith_rules`，往上两层就是仓库根。
+/// 资产根是**仓库根的 `assets/`**，用绝对路径钉住，免得受工作目录影响。
 fn test_app() -> App {
     let mut app = App::new();
     app.add_plugins((
@@ -30,14 +21,14 @@ fn test_app() -> App {
             ..Default::default()
         },
         ScenePlugin,
-        RulesPlugin::<Equipment>::default(),
+        RulesPlugin,
     ));
     app
 }
 
-/// 场景里能直接用**路径**指定配置，规则就写在主人身上，`#[require]` 把结果格子一起带来。
+/// 场景里能直接用**路径**指定配置；公式写在主人身上。
 #[test]
-fn bsn_puts_the_rule_on_the_owner() {
+fn bsn_puts_the_formula_on_the_owner() {
     let mut app = test_app();
     let world = app.world_mut();
 
@@ -52,14 +43,10 @@ fn bsn_puts_the_rule_on_the_owner() {
         .expect("spawn_scene 失败")
         .id();
 
-    let derived = world.get::<HealthMaxFromConstitution>(hero).unwrap();
+    let formula = world.get::<HealthMaxFromConstitution>(hero).unwrap();
     assert_eq!(
-        derived.config.path().and_then(|p| p.path().to_str()),
+        formula.config.path().and_then(|p| p.path().to_str()),
         Some("rules/health_from_constitution.ron")
-    );
-    assert!(
-        world.get::<Modifier<Max<Health>>>(hero).is_some(),
-        "#[require] 应该把结果那条 Modifier 带出来"
     );
 }
 
@@ -89,7 +76,7 @@ fn constitution_drives_the_max() {
     assert_eq!(
         world.get::<Modifier<Max<Health>>>(hero).unwrap().flat,
         60.0,
-        "体质 12 × 每点 5"
+        "体质 12 × 每点 5（结果写在主人自己身上）"
     );
     assert_eq!(
         world.get::<Total<Max<Health>>>(hero).unwrap().value,
@@ -116,8 +103,8 @@ fn equipment_given_constitution_flows_into_the_max() {
             HealthMaxFromConstitution::new(handle),
         ))
         .id();
-    // 装备：+3 体质
-    world.spawn((EquippedOn(hero), ModConstitution::flat(3.0)));
+    // 装备：+3 体质（就是一条普通的修正，归属靠 Affects）
+    world.spawn((Affects(hero), ModConstitution::flat(3.0)));
 
     app.update();
 
@@ -155,19 +142,19 @@ fn missing_config_panics() {
 #[test]
 fn unchanged_value_is_not_written_again() {
     #[derive(Resource, Default)]
-    struct Writes(u32);
+    struct Touches(u32);
 
-    fn count_writes(
+    fn count_touches(
         modifiers: Query<(), Changed<Modifier<Max<Health>>>>,
-        mut writes: ResMut<Writes>,
+        mut touches: ResMut<Touches>,
     ) {
-        writes.0 += modifiers.iter().count() as u32;
+        touches.0 += modifiers.iter().count() as u32;
     }
 
     let mut app = test_app();
-    app.init_resource::<Writes>();
+    app.init_resource::<Touches>();
     // 数在 PostUpdate 里，保证排在重算与派生之后
-    app.add_systems(PostUpdate, count_writes);
+    app.add_systems(PostUpdate, count_touches);
 
     let handle = app
         .world_mut()
@@ -180,14 +167,18 @@ fn unchanged_value_is_not_written_again() {
         HealthMaxFromConstitution::new(handle),
     ));
 
+    // 前两帧：公式补上那条修正（走命令，可能跨一次 flush）
     app.update();
-    assert_eq!(app.world().resource::<Writes>().0, 1, "第一帧应该写一次");
+    app.update();
+    let settled = app.world().resource::<Touches>().0;
+    assert!(settled >= 1, "该产生那条修正");
 
+    // 从这以后值没变，就不该再动它
     app.update();
     assert_eq!(
-        app.world().resource::<Writes>().0,
-        1,
-        "第二帧值没变，不该再写"
+        app.world().resource::<Touches>().0,
+        settled,
+        "值没变，不该再动它"
     );
 }
 
