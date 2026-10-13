@@ -3,11 +3,11 @@
 //! 一条派生 = **一个实体**（与装备一样，是“修正的一个来源”），它身上有两样东西：
 //!
 //! - [`Derived<From, To>`]：声明“`To` 由 `From` 算出来”，参数在配置资产里；
-//! - [`Modifier<To>`]：算出来的结果（由 `#[require]` 自动带上），由下面的同步系统写。
+//! - [`Modifier<To>`]：算出来的结果（由 `#[require]` 自动带上），由 [`sync_derived`] 写。
 //!
 //! **读出的地方完全不用知道“派生”这回事**：它看到的还是 `Modifier<To>`，与装备给的修正同构。
 
-use bevy_asset::{AssetId, AssetServer, Assets, Handle, LoadState};
+use bevy_asset::{AssetId, Assets, Handle};
 use bevy_ecs::prelude::*;
 use core::marker::PhantomData;
 use voxelith_core::prelude::*;
@@ -74,114 +74,44 @@ pub type DerStaminaMaxFromWillpower = Derived<Willpower, Max<Stamina>>;
 /// 精力回复由意志来（`SY-56`：精力上限与回复 ← 意志）。
 pub type DerStaminaRegenFromWillpower = Derived<Willpower, StaminaRegen>;
 
-// ---- 读配置：缺了要吵，没到货就等 ----
+// ---- 一个泛型 system 管所有规则 ----
+//
+// 加一条新规则 = 在插件里加一行注册（`sync_derived::<属性, 量>`），不用复制函数。
 
-/// 取配置。三种情况分得很清楚：
+/// 把每条派生算出来，写进它那条修正。
 ///
-/// - 到货了 → 用它；
-/// - **没写 `config`**（`bsn!` 里漏了，字段还是默认 handle）→ **报错**；
-/// - **加载失败**（文件不在、格式坏）→ **报错**；
-/// - 还在加载 → 这一帧不算（`None`），加载完那一帧自然补上。
-fn config_of<'a>(
-    handle: &Handle<RuleConfig>,
-    configs: &'a Assets<RuleConfig>,
-    asset_server: &AssetServer,
-    owner: Entity,
-) -> Option<&'a RuleConfig> {
-    if let Some(config) = configs.get(handle) {
-        return Some(config);
-    }
-    if handle.id() == AssetId::<RuleConfig>::default() {
-        panic!("实体 {owner:?} 的派生规则没有写 config（bsn 里漏了？）");
-    }
-    match asset_server.load_state(handle) {
-        LoadState::Failed(err) => panic!("实体 {owner:?} 的派生规则配置加载失败：{err}"),
-        _ => None,
-    }
-}
-
-/// 这条派生规则应该给多少。
-fn derived_value<From: Value>(from: &From, config: &RuleConfig) -> f32 {
-    from.base() * config.per_point
-}
-
-// ---- 每条 (属性 → 量) 一条同步系统 ----
-//
-// 加一条新规则 = 复制一段、换类型、在插件里注册一行。
-//
-// ⚠️ 下面那三行看着啰嗦，但**不能省**：把 `Mut<T>` 转成 `&mut T`（例如
-// `apply(…, &mut modifier)`）会立刻调 `DerefMut`，Bevy 就此标记“变了”——
-// 于是每帧都标记，下游的变更检测被连锁触发。
-// 所以：**只在值真的变了的时候才碰它**，比较与赋值都留在 system 里。
-
-pub(crate) fn sync_health_max_from_constitution(
-    asset_server: Res<AssetServer>,
+/// **要求配置一定在**：缺席就是错误（`bsn!` 里漏写，或者装配层没等它加载好）。
+/// “等加载”是装配层的事——进游戏前把用到的资产等齐，别让 system 自己处理“还没到货”。
+///
+/// ⚠️ 下面那三行看着啰嗦，但**不能省**：把 `Mut<T>` 转成 `&mut T`（例如传给 helper）
+/// 会立刻调 `DerefMut`，Bevy 就此标记“变了”——于是每帧都标记，下游被连锁触发。
+/// 所以：**只在值真的变了的时候才碰它**。
+pub fn sync_derived<From, To>(
     configs: Res<Assets<RuleConfig>>,
-    owners: Query<&Constitution>,
-    mut rules: Query<(
-        &Derived<Constitution, Max<Health>>,
-        &DerivedFor,
-        &mut Modifier<Max<Health>>,
-    )>,
-) {
+    owners: Query<&From>,
+    mut rules: Query<(&Derived<From, To>, &DerivedFor, &mut Modifier<To>)>,
+) where
+    From: Value,
+    To: Send + Sync + 'static,
+{
     for (rule, owner, mut modifier) in &mut rules {
-        let Ok(constitution) = owners.get(owner.0) else {
-            continue; // 主人没有体质：规则挂错了，将来接上日志再吵
+        let Ok(from) = owners.get(owner.0) else {
+            continue; // 主人没有这个属性：规则挂错了，将来接上日志再吵
         };
-        let Some(config) = config_of(&rule.config, &configs, &asset_server, owner.0) else {
-            continue;
-        };
-        let value = derived_value(constitution, config);
+        let config = config_of(&rule.config, &configs);
+        let value = from.base() * config.per_point;
         if modifier.flat != value {
             modifier.flat = value;
         }
     }
 }
 
-pub(crate) fn sync_stamina_max_from_willpower(
-    asset_server: Res<AssetServer>,
-    configs: Res<Assets<RuleConfig>>,
-    owners: Query<&Willpower>,
-    mut rules: Query<(
-        &Derived<Willpower, Max<Stamina>>,
-        &DerivedFor,
-        &mut Modifier<Max<Stamina>>,
-    )>,
-) {
-    for (rule, owner, mut modifier) in &mut rules {
-        let Ok(willpower) = owners.get(owner.0) else {
-            continue;
-        };
-        let Some(config) = config_of(&rule.config, &configs, &asset_server, owner.0) else {
-            continue;
-        };
-        let value = derived_value(willpower, config);
-        if modifier.flat != value {
-            modifier.flat = value;
+/// 取配置：**没到货就是错误**。
+fn config_of<'a>(handle: &Handle<RuleConfig>, configs: &'a Assets<RuleConfig>) -> &'a RuleConfig {
+    configs.get(handle).unwrap_or_else(|| {
+        if handle.id() == AssetId::<RuleConfig>::default() {
+            panic!("派生规则没有写 config（bsn 里漏了？）");
         }
-    }
-}
-
-pub(crate) fn sync_stamina_regen_from_willpower(
-    asset_server: Res<AssetServer>,
-    configs: Res<Assets<RuleConfig>>,
-    owners: Query<&Willpower>,
-    mut rules: Query<(
-        &Derived<Willpower, StaminaRegen>,
-        &DerivedFor,
-        &mut Modifier<StaminaRegen>,
-    )>,
-) {
-    for (rule, owner, mut modifier) in &mut rules {
-        let Ok(willpower) = owners.get(owner.0) else {
-            continue;
-        };
-        let Some(config) = config_of(&rule.config, &configs, &asset_server, owner.0) else {
-            continue;
-        };
-        let value = derived_value(willpower, config);
-        if modifier.flat != value {
-            modifier.flat = value;
-        }
-    }
+        panic!("派生规则的配置还没加载好：{handle:?}（装配层应该在进游戏前等齐）");
+    })
 }

@@ -63,22 +63,23 @@ if modifier.flat != value {
 
 顺带一个好处：**配置热重载自动生效**（下一帧值一变就写），不需要监听 `AssetEvent`。
 
-## 出错策略：缺了要吵，没到货就等
+## 出错策略：没到货就是错误，加载由装配层等齐
 
 ```rust
-if let Some(config) = configs.get(handle) { return Some(config); }
-if handle.id() == AssetId::<RuleConfig>::default() {
-    panic!("这条派生规则没有写 config（bsn 里漏了？）");   // 编程/内容错误
-}
-match asset_server.load_state(handle) {
-    LoadState::Failed(err) => panic!("配置加载失败：{err}"),   // 文件不在、格式坏
-    _ => None,                                                 // 还在加载：这一帧不算
+fn config_of<'a>(handle: &Handle<RuleConfig>, configs: &'a Assets<RuleConfig>) -> &'a RuleConfig {
+    configs.get(handle).unwrap_or_else(|| {
+        if handle.id() == AssetId::<RuleConfig>::default() {
+            panic!("派生规则没有写 config（bsn 里漏了？）");
+        }
+        panic!("派生规则的配置还没加载好：{handle:?}（装配层应该在进游戏前等齐）");
+    })
 }
 ```
 
+- **system 里没有“还在加载”这条分支**：要么配置在，要么就是错误。“等加载”是**装配层**的事——进游戏前把用到的资产等齐（真实项目里这一等就是加载界面）。
 - **“没写 config”检测得出来**：`bsn!` 没写那个字段时是 `Handle::default()` = `AssetId::DEFAULT_UUID`（**不是** `INVALID_UUID`），所以能精确判等。
-- **`LoadState` 分四种**：`NotLoaded` / `Loading` / `Loaded` / `Failed(Arc<AssetLoadError>)`。异步加载意味着“第一帧必然没到货”，所以**只有 `Failed` 才算错误**。
-- 未到货那些帧，那条修正保持原值（默认 0）——**不是静默默认值，而是“还没算”**；到货那一帧自动补上。
+- `AssetServer::load_state` 仍然有四种（`NotLoaded` / `Loading` / `Loaded` / `Failed`），装配层想做得更细（显示进度之类）可以用它；**system 里不用**。
+- 测试 `config_loads_from_a_ron_file` 就照这个模式写：**先等文件就绪，再摆用到它的实体**。
 
 ## 注册资产与加载器
 
@@ -92,11 +93,28 @@ app.init_asset::<RuleConfig>()
 - **加载器自己也要 `TypePath`**（`AssetLoader: TypePath`）→ `#[derive(Default, TypePath)]`。
 - `bevy_asset` **不自带**任何文本格式的 loader，得自己写一个（20 行）。
 
-## 每条 (属性 → 量) 一条 system
+## 一个泛型 system，插件里注册每种组合
 
-查询是静态类型，**没法“查出所有 `Derived<_, _>`”**，所以每个 (属性, 目标) 对还是要有自己的一条 system。乘法逻辑共用（`derived_value`），system 里只是把类型接起来。加一条新规则 = 复制一段、换类型、在插件里注册一行。
+```rust
+pub fn sync_derived<From, To>(
+    configs: Res<Assets<RuleConfig>>,
+    owners: Query<&From>,
+    mut rules: Query<(&Derived<From, To>, &DerivedFor, &mut Modifier<To>)>,
+) where From: Value, To: Send + Sync + 'static { … }
 
-这条边界是干净的：**存在哪些可能的组合，是代码的事**（六维与资源本来就在 `voxelith_core` 里定义）；**这个角色有没有这条、系数多少，是内容的事**。
+// 插件里
+.add_systems(Update, (
+    sync_derived::<Constitution, Max<Health>>,
+    sync_derived::<Willpower, Max<Stamina>>,
+    sync_derived::<Willpower, StaminaRegen>,
+))
+```
+
+查询是静态类型，**没法“查出所有 `Derived<_, _>`”**——但**一个泛型函数就够**：每个 (属性, 目标) 对只是把它实例化一次。所以：
+
+- **加一条新规则 = 在插件里加一行**（`sync_derived::<属性, 量>`）；
+- 不存在“每个对复制一份 system”这回事（我第一版那么写了，是多余的）。
+
 ### 附：`PhantomData` 怎么选（这条坑的根）
 
 | 写法 | auto trait（`Send`/`Sync`/`Unpin`） | 用在哪 |

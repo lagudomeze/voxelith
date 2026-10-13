@@ -1,7 +1,7 @@
-//! 派生规则的四个关键行为：bsn 里写路径、值算对、缺配置要吵、从文件真加载。
+//! 派生规则的关键行为：bsn 里写路径、值算对、缺配置要吵、从文件真加载。
 
 use bevy_app::prelude::*;
-use bevy_asset::{AssetPlugin, Assets, Handle};
+use bevy_asset::{AssetPlugin, AssetServer, Assets, Handle};
 use bevy_ecs::prelude::*;
 use bevy_scene::prelude::*;
 use bevy_scene::ScenePlugin;
@@ -139,36 +139,55 @@ fn unchanged_value_is_not_written_again() {
     );
 }
 
-/// 端到端：**真从 `.ron` 文件加载**（AssetServer → 我们的 loader → 修正），加载完自动补上。
+/// 端到端：**真从 `.ron` 文件加载**。
+///
+/// 这里顺带演示**装配层的加载闸门**——`sync_derived` 要求配置一定在，所以进游戏前
+/// 要先把用到的资产等齐（真实项目里这一等就是加载界面）。
 #[test]
 fn config_loads_from_a_ron_file() {
     let mut app = test_app();
-    let world = app.world_mut();
 
-    let hero = world
-        .spawn_scene(bsn! {
-            #Hero
-            Constitution(12.0)
-            Health { current: 30.0, base_max: 60.0 }
-            DerivedModifiers [
-                DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" },
-            ]
-        })
-        .expect("spawn_scene 失败")
-        .id();
-
-    let mut loaded = false;
+    // 1) 先把文件等齐。此时还没摆规则实体，system 不会撞上缺配置。
+    let handle = app
+        .world()
+        .resource::<AssetServer>()
+        .load::<RuleConfig>("rules/health_from_constitution.ron");
     for _ in 0..200 {
         app.update();
-
-        let world = app.world();
-        let rules = world.get::<DerivedModifiers>(hero).unwrap();
-        let first = rules.iter().next().unwrap();
-        let modifier = world.get::<Modifier<Max<Health>>>(first).unwrap();
-        if modifier.flat == 60.0 {
-            loaded = true;
+        if app
+            .world()
+            .resource::<Assets<RuleConfig>>()
+            .get(&handle)
+            .is_some()
+        {
             break;
         }
     }
-    assert!(loaded, "配置应该从 .ron 加载出来，算进那条修正");
+    assert!(
+        app.world()
+            .resource::<Assets<RuleConfig>>()
+            .get(&handle)
+            .is_some(),
+        "文件应该被加载出来"
+    );
+
+    // 2) 摆实体，跑一帧
+    let world = app.world_mut();
+    let hero = world
+        .spawn((
+            Constitution(12.0),
+            Health {
+                current: 30.0,
+                base_max: 60.0,
+            },
+        ))
+        .id();
+    world.spawn((DerivedFor(hero), DerHealthMaxFromConstitution::new(handle)));
+    app.update();
+
+    let world = app.world();
+    let rules = world.get::<DerivedModifiers>(hero).unwrap();
+    let first = rules.iter().next().unwrap();
+    let modifier = world.get::<Modifier<Max<Health>>>(first).unwrap();
+    assert_eq!(modifier.flat, 60.0, "配置应该从 .ron 加载出来，算进那条修正");
 }
