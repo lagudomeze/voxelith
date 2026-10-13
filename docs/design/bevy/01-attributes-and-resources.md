@@ -220,3 +220,18 @@ Bundle <dynamic bundle> has duplicate components: ["bsn::EquippedOn"]
 2. **别把 `Mut<T>` 提前转成 `&mut T`**。`&mut modifier` 这一步会调 `DerefMut`，Bevy 就此标记“变了”，哪怕一个字都没写——于是每帧都标记，下游被连锁触发。想“只在变了才写”，比较与赋值都要留在 system 里（详见 [02-derived-rules.md](02-derived-rules.md) 里那个坑的复现过程）。
 
 配套的写入纪律：**用 `get_mut(实体)` 逐个取，不要遍历所有同类组件**——没事发生的实体就不会被碰。
+## 组件字段不是 `f32` 时，`bsn!` 里的 `S(1.0)` 写不出来（实测）
+
+`bsn!` 的元组写法 `S(1.0)` 是**直接把值当字段**用的，不做 `.into()`：
+
+```
+#[derive(Component, Clone, Copy, Debug, Default)]
+struct S(Data);            // Data 是自定义结构
+
+bsn! { S(1.0) }            // ✗ error[E0308]: expected `Data`, found floating-point number
+bsn! { S(Data { … }) }     // ✓
+```
+
+所以**把「一个 f32」换成「一个结构体」会让所有场景里的 `Strength(10.0)` 破掉**。`#[template(某类型)]` 能给字段换 Template 类型，但那个类型得在 `bsn!` 里被写出来（`Strength(某模板(10.0))`），并没有更短。
+
+结论：**要保住 `Strength(10.0)` 这种写法，量的基础值就得是 `f32` 字段本身**；缓存要放在别处（伴生组件）或者接受 `template_value(Strength::new(10.0))` 这种啰嗦写法。
