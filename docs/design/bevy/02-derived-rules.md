@@ -97,3 +97,12 @@ app.init_asset::<RuleConfig>()
 查询是静态类型，**没法“查出所有 `Derived<_, _>`”**，所以每个 (属性, 目标) 对还是要有自己的一条 system。乘法逻辑共用（`derived_value`），system 里只是把类型接起来。加一条新规则 = 复制一段、换类型、在插件里注册一行。
 
 这条边界是干净的：**存在哪些可能的组合，是代码的事**（六维与资源本来就在 `voxelith_core` 里定义）；**这个角色有没有这条、系数多少，是内容的事**。
+### 附：`PhantomData` 怎么选（这条坑的根）
+
+| 写法 | auto trait（`Send`/`Sync`/`Unpin`） | 用在哪 |
+| --- | --- | --- |
+| `PhantomData<T>` | **跟着 T**（`Send` 当且仅当 `T: Send`） | T 本身已经是 `Send + Sync + 'static` 时（例如 T 是 `Component`）——直白好读 |
+| `PhantomData<fn() -> T>` | **永远 `Send + Sync + Unpin`** | **只在需要“提到 T 但不继承它的约束”时**：这里 `Derived` 就是（手写 `FromTemplate` 要求这个字段自己有 `Template`，而泛型 `(From, To)` 证不出 `Unpin`） |
+| `PhantomData<*const T>` | 永远**不** `Send`/`Sync` | 要让类型不 Send 时（我们没用到） |
+
+即：**先问 T 是不是已经满足了你要的约束**——是就用 `PhantomData<T>`，不是才上 `fn() -> T`。`Adjust<R>` 里我一开始照抄了 `fn() -> R`，其实多余（`R: Resourceable` 已经蕴含 `Send + Sync + 'static`），已经改回 `PhantomData<R>`。
