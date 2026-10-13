@@ -86,45 +86,33 @@ pub trait Value: Component + Sized {
     }
 }
 
-pub trait Resourceable: Component + Sized {
+pub trait Resourceable: Component<Mutability = Mutable> + Sized {
     fn current(&self) -> f32;
     fn base_max(&self) -> f32;
-
-    /// 读出**最终上限**。当前值不走这里。
-    fn resolve_max<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Max<Self>>>) -> f32 {
-        let base = self.base_max();
-        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
-    }
+    fn current_mut(&mut self) -> &mut f32;   // 只给“改值的唯一通路”用
 }
 ```
 
-那条公式**就写在这两个方法里，各一行**——不足以再抽一个名字出来（改的时候记得两处）。
+**求和不在 traits 里**——它要按项目自己的挂法去找修正，所以住在 `voxelith_rules::recompute`（见 [02-derived-rules.md](02-derived-rules.md)）。core 只给"一条修正贡献多少"（`Modifier::contribution`）与"基础值是多少"。
 
-### system 里怎么用（主要用法）
-
-关联列表来自**你自己定义的挂法**（装备槽、增益列表……），修正来自各自的查询——**不需要 `World`**：
+### 读的人：只看 `Total`
 
 ```rust
-fn report(
-    heroes: Query<(&Strength, &Health, &Gear, &Buffs)>,
-    strength_mods: Query<&Modifier<Strength>>,
-    health_mods: Query<&Modifier<Max<Health>>>,
-) {
-    for (strength, health, gear, buffs) in &heroes {
-        // 面板：只看装备
-        let equipped = strength.resolve(gear.0.iter().filter_map(|m| strength_mods.get(*m).ok()));
+// 重算的人（知道挂法）：算完写进缓存
+fn recompute_strength(
+    mut owners: Query<(&Strength, Option<&Gear>, Option<&Modifier<Strength>>, &mut Total<Strength>)>,
+    modifiers: Query<&Modifier<Strength>>,
+) { … }
 
-        // 结算：装备 + 增益
-        let effective = strength.resolve(
-            gear.0.iter().chain(buffs.0.iter()).filter_map(|m| strength_mods.get(*m).ok()),
-        );
-
-        // 资源上限：这里只算装备
-        let max_hp = health.resolve_max(gear.0.iter().filter_map(|m| health_mods.get(*m).ok()));
+// 读的人：一个挂法都不认识
+fn report(owners: Query<(&Total<Strength>, &Total<Max<Health>>, &Health)>) {
+    for (strength, max_hp, health) in &owners {
+        let _ = (strength.value, max_hp.value, health.current());
     }
 }
 ```
 
+`Gear` / `Buffs` 是关系集合，`link.collection().iter()` 就能遍历（要用到 `RelationshipSourceCollection` 这个 trait）。完整可跑的例子：重算半边见 `crates/voxelith_core/tests/system_read.rs`，真实实现见 `crates/voxelith_rules/src/recalc.rs`。
 `Gear` / `Buffs` 是关系集合，直接 `.iter()` 就行（`RelationshipTarget` 给了 `collection()`，且能 `Deref` 到底层 `Vec<Entity>`）。完整可跑的例子在 `crates/voxelith_core/tests/system_read.rs`——**同一个公式，两个系统喂的集合不同，就有两个结果**。
 
 ## 修正：一个 struct 组件
@@ -235,3 +223,21 @@ bsn! { S(Data { … }) }     // ✓
 所以**把「一个 f32」换成「一个结构体」会让所有场景里的 `Strength(10.0)` 破掉**。`#[template(某类型)]` 能给字段换 Template 类型，但那个类型得在 `bsn!` 里被写出来（`Strength(某模板(10.0))`），并没有更短。
 
 结论：**要保住 `Strength(10.0)` 这种写法，量的基础值就得是 `f32` 字段本身**；缓存要放在别处（伴生组件）或者接受 `template_value(Strength::new(10.0))` 这种啰嗦写法。
+## 有效值靠 `Total<T>` 缓存（`#[require]` 自动带上）
+
+每个量（属性、回复速率、资源上限）都有一个伴生缓存组件，由 `#[require]` 自动挂上，**`bsn!` 里不用写**：
+
+```rust
+#[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Strength>)]
+pub struct Strength(pub f32);
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Max<Health>>)]
+pub struct Health { pub current: f32, pub base_max: f32 }
+```
+
+读的人只读 `Total`，重算的人（知道修正怎么挂）写它。这带来一个副产品：**基础值可以保持 `pub f32`**（`bsn!` 要能构造它），而"最终值"永远从 `Total` 读——两者不再混在一起。
+
+实测：`#[require(Total<某量>)]` 这种**带泛型实例**的 required component 可用（`#[require(Modifier<To>)]` 同理）。
+

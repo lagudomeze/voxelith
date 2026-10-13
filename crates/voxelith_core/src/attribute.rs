@@ -4,12 +4,15 @@
 //! 全写开、不上宏——一项七行，读和改都更直接。
 //!
 //! 六项是**引擎能力**（加第七项要改代码）；它们本身**不带规则**，“力量影响什么”写在用到它的 system 里。
+//!
+//! 每项自动带上有效值缓存 [`Total<属性>`]（`#[require]`），所以 `bsn!` 里只写基础值。
 
-use crate::value::{Modifier, Value};
+use crate::value::{Modifier, Total, Value};
 use bevy_ecs::prelude::*;
 
 /// 力量：物理行为的强度。
 #[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Strength>)]
 pub struct Strength(pub f32);
 
 impl Value for Strength {
@@ -20,6 +23,7 @@ impl Value for Strength {
 
 /// 敏捷：命中与闪避。
 #[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Dexterity>)]
 pub struct Dexterity(pub f32);
 
 impl Value for Dexterity {
@@ -30,6 +34,7 @@ impl Value for Dexterity {
 
 /// 体质：血量上限（`SY-56`），物理豁免。
 #[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Constitution>)]
 pub struct Constitution(pub f32);
 
 impl Value for Constitution {
@@ -40,6 +45,7 @@ impl Value for Constitution {
 
 /// 感知：精神强度、暴击与侦测。
 #[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Perception>)]
 pub struct Perception(pub f32);
 
 impl Value for Perception {
@@ -50,6 +56,7 @@ impl Value for Perception {
 
 /// 魔力：法术强度与法力上限。
 #[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Magic>)]
 pub struct Magic(pub f32);
 
 impl Value for Magic {
@@ -60,6 +67,7 @@ impl Value for Magic {
 
 /// 意志：法术与精神豁免，精力上限与回复。
 #[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Willpower>)]
 pub struct Willpower(pub f32);
 
 impl Value for Willpower {

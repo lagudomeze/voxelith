@@ -1764,6 +1764,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_scene",
  "voxelith_core",
+ "voxelith_rules",
 ]
 
 [[package]]

@@ -26,18 +26,70 @@ where
 pub type DerHealthMaxFromConstitution = Derived<Constitution, Max<Health>>;
 ```
 
-`bsn!` 里直接写路径，场景初始化时会 `AssetServer::load` 它：
+`bsn!` 里直接写路径（场景初始化时 `AssetServer::load` 它），规则就写在**主人自己身上**：
 
 ```rust
 world.spawn_scene(bsn! {
     #Hero
     Constitution(12.0)
     Health { current: 30.0, base_max: 60.0 }
-    DerivedModifiers [
-        DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" },
-    ]
+    DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
 })
 ```
+
+**没有关系、没有来源实体**：`#[require(Modifier<To>)]` 把结果格子放在同一个实体上，`sync` 读自己身上的 `Total<From>`、写自己身上那条修正。所以"自己的体质影响自己的血量上限"在结构上就是字面意思。
+
+## 有效值缓存：`Total<T>` + `#[require]`
+
+```rust
+// core
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Total<Mark> { pub value: f32, _marker: PhantomData<Mark> }   // 手写 Default（别给 Mark 加约束）
+
+// 每个量自动带一份缓存——bsn 里一个字都不用写
+#[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Strength>)]
+pub struct Strength(pub f32);
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+#[require(Total<Max<Health>>)]
+pub struct Health { pub current: f32, pub base_max: f32 }
+```
+
+`#[require(Total<某量>)]` 这种**带泛型实例**的 required component 实测可用（`Modifier<To>` 那条也是）。
+
+## 三段顺序 + 一个插件
+
+派生是"读属性、写修正"，资源上限又是"读修正、写缓存"，所以一帧分三段，由 `RulesPlugin::<L>` 一次配好：
+
+```text
+RecalcAttributes（属性）→ DerivedRules（派生写修正）→ RecalcTotals（回复速率 + 资源上限）→ 读者
+```
+
+```rust
+app.add_plugins(RulesPlugin::<Equipment>::default());   // Equipment 是项目自己的 relationship
+```
+
+重算系统是**泛型**的，插件里一行注册一个组合；`L` 就是"修正怎么挂"：
+
+```rust
+pub fn recompute<Q, L>(
+    mut owners: Query<(&Q, Option<&L>, Option<&Modifier<Q>>, &mut Total<Q>)>,
+    modifiers: Query<&Modifier<Q>>,
+) where Q: Value, L: RelationshipTarget
+{ … }
+
+// 插件里
+app.add_systems(Update, (recompute::<Strength, L>, …).in_set(RecalcAttributes));
+```
+
+`L` 上要 `RelationshipTarget`（Bevy 自带）才能取到关联实体：
+
+```rust
+for entity in link.collection().iter() { … }   // 要用到 RelationshipSourceCollection 这个 trait
+```
+
+**`Option<&L>` 不能省**：没有这条链接的实体（光有属性、没有装备）如果不匹配查询，它的 `Total` 就**永远不写 = 0**。
 
 ## 实测记下来的六条
 
@@ -96,7 +148,7 @@ app.init_asset::<RuleConfig>()
 - **加载器自己也要 `TypePath`**（`AssetLoader: TypePath`）→ `#[derive(Default, TypePath)]`。
 - `bevy_asset` **不自带**任何文本格式的 loader，得自己写一个（20 行）。
 
-## 一个泛型 system，插件里注册每种组合
+## 派生规则怎么注册
 
 ```rust
 impl<From, To> Derived<From, To>
@@ -107,9 +159,8 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
     /// 把这条规则算出来，写进结果那条修正。
     pub fn sync(
         configs: Res<Assets<RuleConfig>>,
-        owners: Query<&From>,
-        mut rules: Query<(&Derived<From, To>, &DerivedFor, &mut Modifier<To>)>,
-    ) where From: Value { … }
+        mut owners: Query<(&Total<From>, &Derived<From, To>, &mut Modifier<To>)>,
+    ) { … }
 }
 
 // 插件里：用别名注册，一眼看出是哪条规则
@@ -120,7 +171,7 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
 ))
 ```
 
-关联函数也是普通函数，`add_systems` 照样收（**实测过**：`DerHealthMaxFromConstitution::sync` 能当 system 注册）。好处是 `Send + Sync + 'static + Unpin` 那堆约束待在 impl 块上，不用在函数上再抄一遍；`new` 与 `sync` 也在一起——一条规则的两半。
+关联函数也是普通函数，`add_systems` 照样收（**实测过**：`DerHealthMaxFromConstitution::sync` 能当 system 注册）。好处是 `Send + Sync + 'static + Unpin` 那堆约束待在 impl 块上，不用在函数上再抄一遍；`new` 与 `sync` 也在一起——一条规则的两半。注册时用别名，一眼看出是哪条规则。
 
 查询是静态类型，**没法“查出所有 `Derived<_, _>`”**——但**一个泛型函数就够**：每个 (属性, 目标) 对只是把它实例化一次。所以：
 

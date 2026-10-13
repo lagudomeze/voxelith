@@ -16,6 +16,14 @@ use bevy_scene::prelude::*;
 use bevy_scene::ScenePlugin;
 use voxelith_core::prelude::*;
 
+/// 求和：`基础值 + Σ贡献(基础值)`。
+///
+/// **真实项目里这段在 `voxelith_rules` 的重算系统里**（它要按挂法去找修正）；
+/// core 只负责"一条修正贡献多少"（`Modifier::contribution`）。这里为了断言数值照抄一遍。
+fn total<Mark>(base: f32, modifiers: impl Iterator<Item = Modifier<Mark>>) -> f32 {
+    base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
+}
+
 // ==================== 应用侧自己定义的“挂法” ====================
 
 /// 这条修正挂在哪个主人身上。
@@ -70,14 +78,28 @@ fn modifier_can_be_written_with_turbofish_or_alias() {
     let strength = world.get::<Strength>(raw).unwrap();
     let equipment = world.get::<Equipment>(raw).unwrap();
     assert_eq!(
-        strength.resolve(equipment.0.iter().filter_map(|e| world.get::<Modifier<Strength>>(*e))),
+        total(
+            strength.base(),
+            equipment
+                .0
+                .iter()
+                .filter_map(|e| world.get::<Modifier<Strength>>(*e))
+                .cloned()
+        ),
         15.0
     );
 
     let strength = world.get::<Strength>(aliased).unwrap();
     let equipment = world.get::<Equipment>(aliased).unwrap();
     assert_eq!(
-        strength.resolve(equipment.0.iter().filter_map(|e| world.get::<Modifier<Strength>>(*e))),
+        total(
+            strength.base(),
+            equipment
+                .0
+                .iter()
+                .filter_map(|e| world.get::<Modifier<Strength>>(*e))
+                .cloned()
+        ),
         12.0 // 10 + 5 - 3
     );
 }
@@ -110,17 +132,26 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
 
     let strength = world.get::<Strength>(hero).unwrap();
     assert_eq!(
-        strength.resolve(equipment.0.iter().filter_map(|e| world.get::<Modifier<Strength>>(*e))),
+        total(
+            strength.base(),
+            equipment
+                .0
+                .iter()
+                .filter_map(|e| world.get::<Modifier<Strength>>(*e))
+                .cloned()
+        ),
         20.0 // 10 + 5 + 10 × 0.5
     );
 
     let health = world.get::<Health>(hero).unwrap();
     assert_eq!(
-        health.resolve_max(
+        total(
+            health.base_max(),
             equipment
                 .0
                 .iter()
                 .filter_map(|e| world.get::<Modifier<Max<Health>>>(*e))
+                .cloned()
         ),
         80.0 // 60 + 20
     );
