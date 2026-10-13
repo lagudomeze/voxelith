@@ -14,9 +14,13 @@ pub struct RuleConfig { pub per_point: f32 }
 // 一条派生规则：To 由 From 算出来，参数在哪份文件里
 #[derive(Component, Clone, Debug, FromTemplate)]   // ← 手写（字段里有 Handle）
 #[require(Modifier<To>)]                            // ← 结果那条修正自动带上
-pub struct Derived<From, To> where From: Send + Sync + 'static, To: Send + Sync + 'static {
+pub struct Derived<From, To>
+where
+    From: Send + Sync + 'static + Unpin,   // Unpin 是给 phantom 那条 const 约束的，见下
+    To: Send + Sync + 'static + Unpin,
+{
     pub config: Handle<RuleConfig>,
-    _marker: PhantomData<fn() -> (From, To)>,
+    _marker: PhantomData<(From, To)>,
 }
 
 pub type DerHealthMaxFromConstitution = Derived<Constitution, Max<Health>>;
@@ -42,7 +46,7 @@ world.spawn_scene(bsn! {
 | `Handle<T>` 有专门的 Template | `impl FromTemplate for Handle<T> { type Template = HandleTemplate<T>; }`；**字符串字面量**在 `bsn!` 里自动变成 `HandleTemplate::Path`，场景初始化时 `AssetServer::load(路径)`。另有 `HandleTemplate::value(…)`（内联资产）与 `Handle::from(h)`（克隆已有 handle） |
 | 带 `Handle` 字段的组件要**手写 `FromTemplate`** | 走 blanket 那条路（`Clone + Default + Unpin`）字段类型必须是 `Handle<T>` 本身，路径字符串就进不来 |
 | **别顺手 `#[derive(Default)]`** | `Handle` 自己有 `Default`（Bevy 用 auto-trait specialization 让它能与 blanket 共存），带 handle 的 struct 若同时 `Clone + Default + Unpin` 就会与手写 derive 抢 |
-| `PhantomData<(A, B)>` 会挡住手写 derive | auto trait 会漏到 `A`/`B` 上（`Unpin` 依赖它们），而手写 derive 要求这个字段自己也有 Template → 换成 **`PhantomData<fn() -> (A, B)>`** 切断泄漏 |
+| `PhantomData<(A, B)>` 会挡住手写 derive | auto trait 会漏到 `A`/`B` 上（`Unpin` 依赖它们），而手写 derive 要求这个字段自己也有 Template → 两条解法：给 `A`/`B` 加 `Unpin`（现用），或换成 `PhantomData<fn() -> (A, B)>` 切断泄漏（见文末附表） |
 | `#[require(X)]` 要求 `X: Default`，**且是在泛型上** | 所以 `Modifier<Mark>` 的 `Default` 要**手写**（派生版本会给 `Mark` 加 `Default` 约束，`#[require(Modifier<To>)]` 就过不了） |
 | 目标类型要有 `Send + Sync + 'static` | `Modifier<To>: Component` 要求它；所以 `Derived` 上写了这两个约束 |
 
@@ -66,14 +70,13 @@ if modifier.flat != value {
 ## 出错策略：没到货就是错误，加载由装配层等齐
 
 ```rust
-fn config_of<'a>(handle: &Handle<RuleConfig>, configs: &'a Assets<RuleConfig>) -> &'a RuleConfig {
-    configs.get(handle).unwrap_or_else(|| {
-        if handle.id() == AssetId::<RuleConfig>::default() {
-            panic!("派生规则没有写 config（bsn 里漏了？）");
-        }
-        panic!("派生规则的配置还没加载好：{handle:?}（装配层应该在进游戏前等齐）");
-    })
-}
+// 就在 system 里，没有单独一层 helper
+let config = configs.get(&rule.config).unwrap_or_else(|| {
+    if rule.config.id() == AssetId::<RuleConfig>::default() {
+        panic!("派生规则没有写 config（bsn 里漏了？）");
+    }
+    panic!("派生规则的配置还没加载好（装配层应该在进游戏前等齐）");
+});
 ```
 
 - **system 里没有“还在加载”这条分支**：要么配置在，要么就是错误。“等加载”是**装配层**的事——进游戏前把用到的资产等齐（真实项目里这一等就是加载界面）。
@@ -131,7 +134,7 @@ pub fn sync_derived<From, To>(
 | --- | --- |
 | `PhantomData<(From, To)>` | ✗ 报 `` `PhantomData<(From, To)>` cannot be unpinned … required by `Template` `` |
 | 拆成两个 marker（`PhantomData<From>` + `PhantomData<To>`） | ✗ **同样不过**，报 `` `To` cannot be unpinned … within `PhantomData<To>` `` |
-| `PhantomData<(From, To)>` + 给两个参数加 `Unpin` 约束 | ✓ **能过**，但 `Unpin` 会漏进 `Derived` 的公开约束（struct 与每个 impl 都要写，漏一处就报错） |
-| **`PhantomData<fn() -> (From, To)>`**（采用） | ✓ 过，且不给 `Derived` 添任何约束 |
+| **`PhantomData<(From, To)>` + 给两个参数加 `Unpin` 约束**（采用） | ✓ 字段直白；代价是 `Unpin` 进 `Derived` 的公开约束（struct、impl、用它的泛型 system 都要写）。标记类型本来就都是 `Unpin`，实践中没有代价 |
+| `PhantomData<fn() -> (From, To)>` | ✓ 也能过，且不给 `Derived` 添任何约束；但字段类型绕，读的人得先懂 auto trait 这件事 |
 
 前提是 `Derived` 要**手写 `FromTemplate`**（字段里有 `Handle`）——那套派生要求每个字段自己实现 `Template`，才会去要 `Unpin`。不需要手写派生的组件不会撞上这条。

@@ -22,29 +22,21 @@ use crate::config::RuleConfig;
 #[require(Modifier<To>)]
 pub struct Derived<From, To>
 where
-    From: Send + Sync + 'static,
-    To: Send + Sync + 'static,
+    From: Send + Sync + 'static + Unpin,
+    To: Send + Sync + 'static + Unpin,
 {
     /// 用哪份配置。
     pub config: Handle<RuleConfig>,
-    /// 为什么是 `PhantomData<fn() -> (From, To)>` 而不是 `PhantomData<(From, To)>`：
-    ///
-    /// 手写 `FromTemplate` 会让这个字段去实现 `Template`，而那要求它 `Unpin`；
-    /// `PhantomData<T>` 的 auto trait **跟着 T**，泛型参数证不出 `Unpin` → 编译不过。
-    /// `fn() -> …` 是函数指针，永远 `Send + Sync + Unpin`，把这条依赖切断。
-    ///
-    /// 试过的另外两条路（都不如这条）：
-    /// - 拆成两个独立 marker（`PhantomData<From>` + `PhantomData<To>`）：**同样不过**，
-    ///   报 `To cannot be unpinned ... within PhantomData<To>`；
-    /// - 保留 `PhantomData<(From, To)>` 但给两个参数加 `Unpin` 约束：**能过**，
-    ///   但会把 `Unpin` 漏进 `Derived` 的公开约束（struct 与每个 impl 都得写，漏一处就报错）。
-    _marker: PhantomData<fn() -> (From, To)>,
+    /// `Unpin` 那两条约束是**给这个字段的**：手写 `FromTemplate` 会让它去实现 `Template`，
+    /// 而 `PhantomData<T>` 的 auto trait 跟着 `T`——泛型参数不写 `Unpin` 就证不出来。
+    /// （另一条路是 `PhantomData<fn() -> (From, To)>`：函数指针永远 `Unpin`，但那样更绕。）
+    _marker: PhantomData<(From, To)>,
 }
 
 impl<From, To> Derived<From, To>
 where
-    From: Send + Sync + 'static,
-    To: Send + Sync + 'static,
+    From: Send + Sync + 'static + Unpin,
+    To: Send + Sync + 'static + Unpin,
 {
     /// 用一份配置建一条派生规则（`bsn!` 里直接写 `{ config: "路径.ron" }` 也行）。
     pub fn new(config: Handle<RuleConfig>) -> Self {
@@ -91,27 +83,28 @@ pub fn sync_derived<From, To>(
     owners: Query<&From>,
     mut rules: Query<(&Derived<From, To>, &DerivedFor, &mut Modifier<To>)>,
 ) where
-    From: Value,
-    To: Send + Sync + 'static,
+    From: Value + Unpin,
+    To: Send + Sync + 'static + Unpin,
 {
     for (rule, owner, mut modifier) in &mut rules {
         let Ok(from) = owners.get(owner.0) else {
             continue; // 主人没有这个属性：规则挂错了，将来接上日志再吵
         };
-        let config = config_of(&rule.config, &configs);
+
+        // 取配置：没到货就是错误。
+        let config = configs.get(&rule.config).unwrap_or_else(|| {
+            if rule.config.id() == AssetId::<RuleConfig>::default() {
+                panic!("派生规则没有写 config（bsn 里漏了？）");
+            }
+            panic!(
+                "派生规则的配置还没加载好：{:?}（装配层应该在进游戏前等齐）",
+                rule.config
+            );
+        });
+
         let value = from.base() * config.per_point;
         if modifier.flat != value {
             modifier.flat = value;
         }
     }
-}
-
-/// 取配置：**没到货就是错误**。
-fn config_of<'a>(handle: &Handle<RuleConfig>, configs: &'a Assets<RuleConfig>) -> &'a RuleConfig {
-    configs.get(handle).unwrap_or_else(|| {
-        if handle.id() == AssetId::<RuleConfig>::default() {
-            panic!("派生规则没有写 config（bsn 里漏了？）");
-        }
-        panic!("派生规则的配置还没加载好：{handle:?}（装配层应该在进游戏前等齐）");
-    })
 }
