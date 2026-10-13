@@ -37,7 +37,7 @@
 | 模块 | 管什么 |
 | --- | --- |
 | `recalc` | **重算**：按项目给的挂法求出有效值写进 `Total`（`recompute` / `recompute_max`），并把一帧分成三段：属性 → 派生 → 回复速率与资源上限 |
-| `derived` | **派生**：`Derived<From, To>`（声明 + 配置 handle）+ 每条规则的 `sync` |
+| `derived` | **派生**：`Formula<From, To>`（声明 + 配置 handle）+ 每条规则的 `apply` |
 | `config` | 规则参数资产（`RuleConfig`：一份文件一条规则） |
 
 对外只有一个入口：[`RulesPlugin<L>`](../design/bevy/02-derived-rules.md)——`L` 就是**修正怎么挂**（项目自己的 relationship）。

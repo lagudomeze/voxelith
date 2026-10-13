@@ -66,7 +66,7 @@ fn main() {
                 ModHealthMax { flat: 20.0 },
             ]
             // 派生：血量上限由体质来（参数在配置里，这里只写用哪份）
-            DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
+            HealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
         })
         .expect("装配英雄失败")
         .id();

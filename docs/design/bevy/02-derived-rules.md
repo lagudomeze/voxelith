@@ -14,7 +14,7 @@ pub struct RuleConfig { pub per_point: f32 }
 // 一条派生规则：To 由 From 算出来，参数在哪份文件里
 #[derive(Component, Clone, Debug, FromTemplate)]   // ← 手写（字段里有 Handle）
 #[require(Modifier<To>)]                            // ← 结果那条修正自动带上
-pub struct Derived<From, To>
+pub struct Formula<From, To>
 where
     From: Send + Sync + 'static + Unpin,   // Unpin 是给 phantom 那条 const 约束的，见下
     To: Send + Sync + 'static + Unpin,
@@ -23,7 +23,7 @@ where
     _marker: PhantomData<(From, To)>,
 }
 
-pub type DerHealthMaxFromConstitution = Derived<Constitution, Max<Health>>;
+pub type HealthMaxFromConstitution = Formula<Constitution, Max<Health>>;
 ```
 
 `bsn!` 里直接写路径（场景初始化时 `AssetServer::load` 它），规则就写在**主人自己身上**：
@@ -34,7 +34,7 @@ world.spawn_scene(bsn! {
     Constitution(12.0)
     Health(30.0)
     HealthMax(60.0)        // 当前值与上限是两个组件；别名在 bsn! 里能当类型用
-    DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
+    HealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
 })
 ```
 
@@ -154,29 +154,29 @@ app.init_asset::<RuleConfig>()
 ## 派生规则怎么注册
 
 ```rust
-impl<From, To> Derived<From, To>
+impl<From, To> Formula<From, To>
 where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
 {
     pub fn new(config: Handle<RuleConfig>) -> Self { … }
 
-    /// 把这条规则算出来，写进结果那条修正。
-    pub fn sync(
+    /// 应用这条公式：把结果算出来，写进结果那条修正。
+    pub fn apply(
         configs: Res<Assets<RuleConfig>>,
-        mut owners: Query<(&Total<From>, &Derived<From, To>, &mut Modifier<To>)>,
+        mut owners: Query<ApplyParts<From, To>>,
     ) { … }
 }
 
 // 插件里：用别名注册，一眼看出是哪条规则
 .add_systems(Update, (
-    DerHealthMaxFromConstitution::sync,
-    DerStaminaMaxFromWillpower::sync,
-    DerStaminaRegenFromWillpower::sync,
+    HealthMaxFromConstitution::apply,
+    StaminaMaxFromWillpower::apply,
+    StaminaRegenFromWillpower::apply,
 ))
 ```
 
-关联函数也是普通函数，`add_systems` 照样收（**实测过**：`DerHealthMaxFromConstitution::sync` 能当 system 注册）。好处是 `Send + Sync + 'static + Unpin` 那堆约束待在 impl 块上，不用在函数上再抄一遍；`new` 与 `sync` 也在一起——一条规则的两半。注册时用别名，一眼看出是哪条规则。
+关联函数也是普通函数，`add_systems` 照样收（**实测过**：`HealthMaxFromConstitution::apply` 能当 system 注册）。好处是 `Send + Sync + 'static + Unpin` 那堆约束待在 impl 块上，不用在函数上再抄一遍；`new` 与 `sync` 也在一起——一条规则的两半。注册时用别名，一眼看出是哪条规则。
 
-查询是静态类型，**没法“查出所有 `Derived<_, _>`”**——但**一个泛型函数就够**：每个 (属性, 目标) 对只是把它实例化一次。所以：
+查询是静态类型，**没法“查出所有 `Formula<_, _>`”**——但**一个泛型函数就够**：每个 (属性, 目标) 对只是把它实例化一次。所以：
 
 - **加一条新规则 = 在插件里加一行**（`别名::sync`）；
 - 不存在“每个对复制一份 system”这回事（我第一版那么写了，是多余的）。
@@ -191,16 +191,16 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
 
 即：**先问 T 是不是已经满足了你要的约束**——是就用 `PhantomData<T>`，不是才上 `fn() -> T`。`Adjust<Q>`（core 的改值消息）里我一开始照抄了 `fn() -> Q`，其实多余（`Q: Value` 已经蕴含 `Send + Sync + 'static`），已经改回 `PhantomData<Q>`。
 
-`Derived` 这里三条路都试过（实测）：
+`Formula` 这里三条路都试过（实测）：
 
 | 写法 | 结果 |
 | --- | --- |
 | `PhantomData<(From, To)>` | ✗ 报 `` `PhantomData<(From, To)>` cannot be unpinned … required by `Template` `` |
 | 拆成两个 marker（`PhantomData<From>` + `PhantomData<To>`） | ✗ **同样不过**，报 `` `To` cannot be unpinned … within `PhantomData<To>` `` |
 | **`PhantomData<(From, To)>` + 给两个参数加 `Unpin` 约束**（采用） | ✓ 字段直白；代价是 `Unpin` 进 `Derived` 的公开约束（struct、impl、用它的泛型 system 都要写）。标记类型本来就都是 `Unpin`，实践中没有代价 |
-| `PhantomData<fn() -> (From, To)>` | ✓ 也能过，且不给 `Derived` 添任何约束；但字段类型绕，读的人得先懂 auto trait 这件事 |
+| `PhantomData<fn() -> (From, To)>` | ✓ 也能过，且不给 `Formula` 添任何约束；但字段类型绕，读的人得先懂 auto trait 这件事 |
 
-前提是 `Derived` 要**手写 `FromTemplate`**（字段里有 `Handle`）——那套派生要求每个字段自己实现 `Template`，才会去要 `Unpin`。不需要手写派生的组件不会撞上这条。
+前提是 `Formula` 要**手写 `FromTemplate`**（字段里有 `Handle`）——那套派生要求每个字段自己实现 `Template`，才会去要 `Unpin`。不需要手写派生的组件不会撞上这条。
 ## 长查询用 `QueryData` 起个名字（不要 `#[allow(clippy::type_complexity)]`）
 
 重算的查询是个四元组、派生的 `sync` 是个三元组，直接写出来 clippy 会喊 `type_complexity` ✗ 拿 `allow` 糊过去更糟——读的人得靠**位置**记"第三个元素是什么"。给它们起名字：

@@ -57,9 +57,9 @@ impl<L: RelationshipTarget> Plugin for RulesPlugin<L> {
             .add_systems(
                 Update,
                 (
-                    DerHealthMaxFromConstitution::sync,
-                    DerStaminaMaxFromWillpower::sync,
-                    DerStaminaRegenFromWillpower::sync,
+                    HealthMaxFromConstitution::apply,
+                    StaminaMaxFromWillpower::apply,
+                    StaminaRegenFromWillpower::apply,
                 )
                     .in_set(DerivedRules),
             );
@@ -70,9 +70,9 @@ impl<L: RelationshipTarget> Plugin for RulesPlugin<L> {
 pub mod prelude {
     pub use crate::config::RuleConfig;
     pub use crate::derived::{
-        DerHealthMaxFromConstitution, DerStaminaMaxFromWillpower, DerStaminaRegenFromWillpower,
-        Derived,
+        ApplyParts, Formula, HealthMaxFromConstitution, StaminaMaxFromWillpower,
+        StaminaRegenFromWillpower,
     };
-    pub use crate::recalc::{DerivedRules, RecalcAttributes, RecalcTotals};
+    pub use crate::recalc::{DerivedRules, RecalcAttributes, RecalcTotals, RecomputeParts};
     pub use crate::{RulesPlugin, recompute};
 }

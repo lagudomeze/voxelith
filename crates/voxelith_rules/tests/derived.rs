@@ -47,12 +47,12 @@ fn bsn_puts_the_rule_on_the_owner() {
             Constitution(12.0)
             Health(30.0)
             HealthMax(60.0)
-            DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
+            HealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
         })
         .expect("spawn_scene 失败")
         .id();
 
-    let derived = world.get::<DerHealthMaxFromConstitution>(hero).unwrap();
+    let derived = world.get::<HealthMaxFromConstitution>(hero).unwrap();
     assert_eq!(
         derived.config.path().and_then(|p| p.path().to_str()),
         Some("rules/health_from_constitution.ron")
@@ -78,7 +78,7 @@ fn constitution_drives_the_max() {
             Constitution(12.0),
             Health(30.0),
             Max::<Health>::new(60.0),
-            DerHealthMaxFromConstitution::new(handle),
+            HealthMaxFromConstitution::new(handle),
         ))
         .id();
 
@@ -113,7 +113,7 @@ fn equipment_given_constitution_flows_into_the_max() {
             Constitution(12.0),
             Health(30.0),
             Max::<Health>::new(60.0),
-            DerHealthMaxFromConstitution::new(handle),
+            HealthMaxFromConstitution::new(handle),
         ))
         .id();
     // 装备：+3 体质
@@ -145,7 +145,7 @@ fn missing_config_panics() {
     world.spawn((
         Constitution(12.0),
         Health::default(),
-        DerHealthMaxFromConstitution::new(Handle::default()),
+        HealthMaxFromConstitution::new(Handle::default()),
     ));
 
     app.update();
@@ -177,7 +177,7 @@ fn unchanged_value_is_not_written_again() {
     world.spawn((
         Constitution(12.0),
         Health::default(),
-        DerHealthMaxFromConstitution::new(handle),
+        HealthMaxFromConstitution::new(handle),
     ));
 
     app.update();
@@ -230,7 +230,7 @@ fn config_loads_from_a_ron_file() {
             Constitution(12.0),
             Health(30.0),
             Max::<Health>::new(60.0),
-            DerHealthMaxFromConstitution::new(handle),
+            HealthMaxFromConstitution::new(handle),
         ))
         .id();
     app.update();

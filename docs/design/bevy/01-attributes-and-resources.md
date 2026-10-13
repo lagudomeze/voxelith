@@ -244,4 +244,24 @@ pub struct Max<Q: Value>(pub f32, PhantomData<Q>)
 读的人只读 `Total`，重算的人（知道修正怎么挂）写它。这带来一个副产品：**基础值可以保持 `pub f32`**（`bsn!` 要能构造它），而"最终值"永远从 `Total` 读——两者不再混在一起。
 
 实测：`#[require(Total<某量>)]` 这种**带泛型实例**的 required component 可用（`#[require(Modifier<To>)]` 同理）。
+## 第三条路：自己定义 Template 类型（现在没用，先记着）
 
+`bsn!` 里怎么写一个组件，除了 blanket（`Clone + Default + Unpin`）和 `#[derive(FromTemplate)]`，还有第三条路：**手写 `FromTemplate`，并把 `Template` 指成另一个类型**——Bevy 自己就是这么给资产留出路的：
+
+```rust
+impl<T: Asset> FromTemplate for Handle<T> {
+    type Template = HandleTemplate<T>;          // ← 不是 Handle<T> 本身
+}
+
+impl<T: Asset> Template for HandleTemplate<T> {
+    fn build_template(&self, context: &mut TemplateContext) -> Result<Handle<T>> { … }
+}
+```
+
+这样"字段是 `Handle<T>`"与"bsn 里能写一段路径字符串"两件事就分开了。
+
+**什么时候值得用**：字段在 Rust 里是结构体 / 引用 / 枚举，但在 `bsn!` 里希望写得更简单（路径、id、简短形式）。**代价**是每个这样的组件要自己写一对类型 + 两个 impl（`FromTemplate` 与 `Template`）。
+
+**我们暂时没用**：`Strength(10.0)` 是靠"字段本身就是 `f32`" + 有效值缓存放伴生组件（[`Total`]）解决的；实测过字段换成结构体后 `bsn! { S(1.0) }` 会 `E0308` ✗（见上一节）。真需要"结构体字段 + 简便写法"时，这条路是现成的。
+
+**一句提醒**：`bsn!` 里能写什么，取决于**那一段文本怎么变成模板值**——`Handle` 能收路径字符串是 Bevy 给它铺好的，**数字不会自动 `into()`**（这正是我们 `E0308` 那条的原因）。要用这条路，先写个最小探针验一遍再推广。
