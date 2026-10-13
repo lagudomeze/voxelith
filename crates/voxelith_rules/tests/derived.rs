@@ -19,13 +19,14 @@ struct EquippedOn(Entity);
 #[relationship_target(relationship = EquippedOn, linked_spawn)]
 struct Equipment(Vec<Entity>);
 
-/// 资产根钉在 crate 目录里，免得受工作目录影响。
+/// 资产根是**仓库根的 `assets/`**（内容与代码分开放），用绝对路径钉住，免得受工作目录影响。
+/// `CARGO_MANIFEST_DIR` 是 `crates/voxelith_rules`，往上两层就是仓库根。
 fn test_app() -> App {
     let mut app = App::new();
     app.add_plugins((
         TaskPoolPlugin::default(),
         AssetPlugin {
-            file_path: format!("{}/assets", env!("CARGO_MANIFEST_DIR")),
+            file_path: format!("{}/../../assets", env!("CARGO_MANIFEST_DIR")),
             ..Default::default()
         },
         ScenePlugin,

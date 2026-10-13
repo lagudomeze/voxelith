@@ -63,3 +63,10 @@
 | --- | --- |
 | 自检（造一个英雄、打印最终属性） | `cargo run -p voxelith_app` |
 | 全部测试 | `cargo test` |
+## 内容放哪
+
+**内容与代码分开放：资产根是仓库根的 `assets/`**（`assets/rules/*.ron` 是规则参数）。
+
+- 运行时：应用把 `AssetPlugin.file_path` 指到它——用**绝对路径**钉住（`{CARGO_MANIFEST_DIR}/../../assets`），免得受工作目录影响；
+- 测试：`voxelith_rules` 的测试也指同一个根，所以**测试读的就是真实内容**，另有一份 fixture 就等着两边跑偏；
+- 将来内容变多也还是这一个根（贴图、关卡、数据都从它下面分目录），不按 crate 分散。
