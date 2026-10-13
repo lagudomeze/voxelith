@@ -201,3 +201,35 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
 | `PhantomData<fn() -> (From, To)>` | ✓ 也能过，且不给 `Derived` 添任何约束；但字段类型绕，读的人得先懂 auto trait 这件事 |
 
 前提是 `Derived` 要**手写 `FromTemplate`**（字段里有 `Handle`）——那套派生要求每个字段自己实现 `Template`，才会去要 `Unpin`。不需要手写派生的组件不会撞上这条。
+## 长查询用 `QueryData` 起个名字（不要 `#[allow(clippy::type_complexity)]`）
+
+重算的查询是个四元组、派生的 `sync` 是个三元组，直接写出来 clippy 会喊 `type_complexity` ✗ 拿 `allow` 糊过去更糟——读的人得靠**位置**记"第三个元素是什么"。给它们起名字：
+
+```rust
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct RecomputeParts<Q: Value, L: RelationshipTarget> {
+    pub value: &'static Q,
+    pub link: Option<&'static L>,
+    pub own: Option<&'static Modifier<Q>>,
+    pub total: &'static mut Total<Q>,
+}
+
+pub fn recompute<Q, L>(mut owners: Query<RecomputeParts<Q, L>>, …) {
+    for mut item in &mut owners {
+        let raw = item.value.raw();
+        …
+    }
+}
+```
+
+实测（0.19.1）：
+
+| 事 | 结果 |
+| --- | --- |
+| 泛型参数 + `where` 约束（`Q: Value, L: RelationshipTarget`） | ✓ |
+| `Option<&'static L>`、`Option<&'static Modifier<Q>>` | ✓ |
+| `&'static mut` | 必须配 `#[query_data(mutable)]`，否则直接编译报错 |
+| 自动生成只读变体 `RecomputePartsReadOnly` | ✓（同一个类型也能给只读系统用） |
+| 可变字段的写法 | `for mut item in &mut owners`——`mut` 在 **item** 上（元组写法里是写在元素上） |
+| 过滤器 | 同理：`#[derive(QueryFilter)]` 带泛型也行；字段必须是**过滤类型**（`With<T>`/`Without<T>`/`Changed<T>`…），**不能可变** |

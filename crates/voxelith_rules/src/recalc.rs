@@ -23,6 +23,7 @@
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::relationship::RelationshipSourceCollection;
 use voxelith_core::prelude::*;
 
@@ -38,28 +39,44 @@ pub struct DerivedRules;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RecalcTotals;
 
+/// 重算一个量要的四样东西。
+///
+/// 用 `QueryData` 给这个"四元组"起个名字：签名短了，每个字段也有名字——
+/// 比 `Query<(&Q, Option<&L>, Option<&Modifier<Q>>, &mut Total<Q>)>` 那种靠位置记的写法好读。
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct RecomputeParts<Q: Value, L: RelationshipTarget> {
+    /// 量自己（取 raw）。
+    pub value: &'static Q,
+    /// 挂法：这条链接上的修正实体（没有链接就是空的）。
+    pub link: Option<&'static L>,
+    /// 自己身上那条修正（派生规则写在这里）。
+    pub own: Option<&'static Modifier<Q>>,
+    /// 有效值缓存（写它）。
+    pub total: &'static mut Total<Q>,
+}
+
 /// 重算一个量的有效值。
 ///
 /// 只在**值真的变了**的时候写——否则每帧都标记变更，下游的变更检测被连锁触发。
-#[allow(clippy::type_complexity, reason = "查询就是要写这么长，拆 type 反而看不清")]
 pub fn recompute<Q, L>(
-    mut owners: Query<(&Q, Option<&L>, Option<&Modifier<Q>>, &mut Total<Q>)>,
+    mut owners: Query<RecomputeParts<Q, L>>,
     modifiers: Query<&Modifier<Q>>,
 ) where
     Q: Value,
     L: RelationshipTarget,
 {
-    for (value, link, own, mut total) in &mut owners {
-        let raw = value.raw();
+    for mut item in &mut owners {
+        let raw = item.value.raw();
         let mut resolved = raw;
 
         // 自己身上那条（派生规则写在这里）
-        if let Some(own) = own {
+        if let Some(own) = item.own {
             resolved += own.contribution(raw);
         }
 
         // 挂着的那些
-        if let Some(link) = link {
+        if let Some(link) = item.link {
             for entity in link.collection().iter() {
                 if let Ok(modifier) = modifiers.get(entity) {
                     resolved += modifier.contribution(raw);
@@ -67,8 +84,8 @@ pub fn recompute<Q, L>(
             }
         }
 
-        if total.value != resolved {
-            total.value = resolved;
+        if item.total.value != resolved {
+            item.total.value = resolved;
         }
     }
 }

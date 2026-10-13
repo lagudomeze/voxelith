@@ -15,6 +15,7 @@
 
 use bevy_asset::{AssetId, Assets, Handle};
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use core::marker::PhantomData;
 use voxelith_core::prelude::*;
 
@@ -42,6 +43,22 @@ where
     _marker: PhantomData<(From, To)>,
 }
 
+/// `sync` 要的三样东西（给这个三元组起个名字）。
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub struct SyncParts<From, To>
+where
+    From: Send + Sync + 'static + Unpin,
+    To: Send + Sync + 'static + Unpin,
+{
+    /// 源属性的有效值（派生读它，不是基础值）。
+    pub from: &'static Total<From>,
+    /// 这条规则（声明 + 用哪份配置）。
+    pub rule: &'static Derived<From, To>,
+    /// 结果那条修正（写它）。
+    pub modifier: &'static mut Modifier<To>,
+}
+
 impl<From, To> Derived<From, To>
 where
     From: Send + Sync + 'static + Unpin,
@@ -66,26 +83,25 @@ where
     /// ⚠️ 下面那三行看着啰嗦，但**不能省**：把 `Mut<T>` 转成 `&mut T`（例如传给 helper）
     /// 会立刻调 `DerefMut`，Bevy 就此标记“变了”——于是每帧都标记，下游被连锁触发。
     /// 所以：**只在值真的变了的时候才碰它**。
-    #[allow(clippy::type_complexity, reason = "同上")]
     pub fn sync(
         configs: Res<Assets<RuleConfig>>,
-        mut owners: Query<(&Total<From>, &Derived<From, To>, &mut Modifier<To>)>,
+        mut owners: Query<SyncParts<From, To>>,
     ) {
-        for (from, rule, mut modifier) in &mut owners {
+        for mut item in &mut owners {
             // 取配置：没到货就是错误。
-            let config = configs.get(&rule.config).unwrap_or_else(|| {
-                if rule.config.id() == AssetId::<RuleConfig>::default() {
+            let config = configs.get(&item.rule.config).unwrap_or_else(|| {
+                if item.rule.config.id() == AssetId::<RuleConfig>::default() {
                     panic!("派生规则没有写 config（bsn 里漏了？）");
                 }
                 panic!(
                     "派生规则的配置还没加载好：{:?}（装配层应该在进游戏前等齐）",
-                    rule.config
+                    item.rule.config
                 );
             });
 
-            let value = from.value * config.per_point;
-            if modifier.flat != value {
-                modifier.flat = value;
+            let value = item.from.value * config.per_point;
+            if item.modifier.flat != value {
+                item.modifier.flat = value;
             }
         }
     }
