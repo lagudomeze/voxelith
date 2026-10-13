@@ -180,7 +180,10 @@ world.spawn_scene(bsn! {
     Health(30.0)                                   // 当前值：tuple 写法
     HealthMax(60.0)                                // 上限：别名 + tuple，phantom 自动默认
                                                    //（实测：别名在 bsn! 里能当类型用；
-                                                   //  在 Rust 代码里不能当构造函数，用 Max::new）
+                                                   //  在 Rust 代码里不能当构造函数，用 Max::new；
+                                                   //  `#[derive(Component)]` 也放不到别名上——E0774
+                                                   //  只能放在 struct/enum/union 上。别名本身就是同一个
+                                                   //  类型，Component 由 Max<Q> 提供，不需要再 derive）
     Equipment [
         ModStrength { flat: 5.0 },
         ModStrength { flat: -2.0 },                   // 减
