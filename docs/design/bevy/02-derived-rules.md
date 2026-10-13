@@ -55,7 +55,7 @@ world.spawn_scene(bsn! {
 **正确写法**：比较与赋值都留在 system 里，且只在真的不等时才碰它：
 
 ```rust
-let value = derived_value(constitution, config);
+let value = from.base() * config.per_point;
 if modifier.flat != value {
     modifier.flat = value;   // 只有这一行会标记
 }
