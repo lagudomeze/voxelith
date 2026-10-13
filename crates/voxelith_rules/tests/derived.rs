@@ -141,7 +141,7 @@ fn unchanged_value_is_not_written_again() {
 
 /// 端到端：**真从 `.ron` 文件加载**。
 ///
-/// 这里顺带演示**装配层的加载闸门**——`sync_derived` 要求配置一定在，所以进游戏前
+/// 这里顺带演示**装配层的加载闸门**——`Derived::sync` 要求配置一定在，所以进游戏前
 /// 要先把用到的资产等齐（真实项目里这一等就是加载界面）。
 #[test]
 fn config_loads_from_a_ron_file() {

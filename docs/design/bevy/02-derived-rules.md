@@ -99,23 +99,32 @@ app.init_asset::<RuleConfig>()
 ## 一个泛型 system，插件里注册每种组合
 
 ```rust
-pub fn sync_derived<From, To>(
-    configs: Res<Assets<RuleConfig>>,
-    owners: Query<&From>,
-    mut rules: Query<(&Derived<From, To>, &DerivedFor, &mut Modifier<To>)>,
-) where From: Value, To: Send + Sync + 'static { … }
+impl<From, To> Derived<From, To>
+where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
+{
+    pub fn new(config: Handle<RuleConfig>) -> Self { … }
 
-// 插件里
+    /// 把这条规则算出来，写进结果那条修正。
+    pub fn sync(
+        configs: Res<Assets<RuleConfig>>,
+        owners: Query<&From>,
+        mut rules: Query<(&Derived<From, To>, &DerivedFor, &mut Modifier<To>)>,
+    ) where From: Value { … }
+}
+
+// 插件里：用别名注册，一眼看出是哪条规则
 .add_systems(Update, (
-    sync_derived::<Constitution, Max<Health>>,
-    sync_derived::<Willpower, Max<Stamina>>,
-    sync_derived::<Willpower, StaminaRegen>,
+    DerHealthMaxFromConstitution::sync,
+    DerStaminaMaxFromWillpower::sync,
+    DerStaminaRegenFromWillpower::sync,
 ))
 ```
 
+关联函数也是普通函数，`add_systems` 照样收（**实测过**：`DerHealthMaxFromConstitution::sync` 能当 system 注册）。好处是 `Send + Sync + 'static + Unpin` 那堆约束待在 impl 块上，不用在函数上再抄一遍；`new` 与 `sync` 也在一起——一条规则的两半。
+
 查询是静态类型，**没法“查出所有 `Derived<_, _>`”**——但**一个泛型函数就够**：每个 (属性, 目标) 对只是把它实例化一次。所以：
 
-- **加一条新规则 = 在插件里加一行**（`sync_derived::<属性, 量>`）；
+- **加一条新规则 = 在插件里加一行**（`别名::sync`）；
 - 不存在“每个对复制一份 system”这回事（我第一版那么写了，是多余的）。
 
 ### 附：`PhantomData` 怎么选（这条坑的根）
