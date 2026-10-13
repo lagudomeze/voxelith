@@ -105,4 +105,15 @@ app.init_asset::<RuleConfig>()
 | `PhantomData<fn() -> T>` | **永远 `Send + Sync + Unpin`** | **只在需要“提到 T 但不继承它的约束”时**：这里 `Derived` 就是（手写 `FromTemplate` 要求这个字段自己有 `Template`，而泛型 `(From, To)` 证不出 `Unpin`） |
 | `PhantomData<*const T>` | 永远**不** `Send`/`Sync` | 要让类型不 Send 时（我们没用到） |
 
-即：**先问 T 是不是已经满足了你要的约束**——是就用 `PhantomData<T>`，不是才上 `fn() -> T`。`Adjust<R>` 里我一开始照抄了 `fn() -> R`，其实多余（`R: Resourceable` 已经蕴含 `Send + Sync + 'static`），已经改回 `PhantomData<R>`。
+即：**先问 T 是不是已经满足了你要的约束**——是就用 `PhantomData<T>`，不是才上 `fn() -> T`。`Adjust<R>`（core 的改值消息）里我一开始照抄了 `fn() -> R`，其实多余（`R: Resourceable` 已经蕴含 `Send + Sync + 'static`），已经改回 `PhantomData<R>`。
+
+`Derived` 这里三条路都试过（实测）：
+
+| 写法 | 结果 |
+| --- | --- |
+| `PhantomData<(From, To)>` | ✗ 报 `` `PhantomData<(From, To)>` cannot be unpinned … required by `Template` `` |
+| 拆成两个 marker（`PhantomData<From>` + `PhantomData<To>`） | ✗ **同样不过**，报 `` `To` cannot be unpinned … within `PhantomData<To>` `` |
+| `PhantomData<(From, To)>` + 给两个参数加 `Unpin` 约束 | ✓ **能过**，但 `Unpin` 会漏进 `Derived` 的公开约束（struct 与每个 impl 都要写，漏一处就报错） |
+| **`PhantomData<fn() -> (From, To)>`**（采用） | ✓ 过，且不给 `Derived` 添任何约束 |
+
+前提是 `Derived` 要**手写 `FromTemplate`**（字段里有 `Handle`）——那套派生要求每个字段自己实现 `Template`，才会去要 `Unpin`。不需要手写派生的组件不会撞上这条。

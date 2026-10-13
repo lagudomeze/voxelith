@@ -27,9 +27,17 @@ where
 {
     /// 用哪份配置。
     pub config: Handle<RuleConfig>,
-    /// `fn() -> (From, To)` 而不是 `(From, To)`：**切断 auto trait 泄漏**。
-    /// 否则 `PhantomData<(From, To)>` 的 `Unpin` 会依赖 `From`/`To`，
-    /// 手写 `FromTemplate` 的派生就过不了（它要求这个字段自己也有 Template）。
+    /// 为什么是 `PhantomData<fn() -> (From, To)>` 而不是 `PhantomData<(From, To)>`：
+    ///
+    /// 手写 `FromTemplate` 会让这个字段去实现 `Template`，而那要求它 `Unpin`；
+    /// `PhantomData<T>` 的 auto trait **跟着 T**，泛型参数证不出 `Unpin` → 编译不过。
+    /// `fn() -> …` 是函数指针，永远 `Send + Sync + Unpin`，把这条依赖切断。
+    ///
+    /// 试过的另外两条路（都不如这条）：
+    /// - 拆成两个独立 marker（`PhantomData<From>` + `PhantomData<To>`）：**同样不过**，
+    ///   报 `To cannot be unpinned ... within PhantomData<To>`；
+    /// - 保留 `PhantomData<(From, To)>` 但给两个参数加 `Unpin` 约束：**能过**，
+    ///   但会把 `Unpin` 漏进 `Derived` 的公开约束（struct 与每个 impl 都得写，漏一处就报错）。
     _marker: PhantomData<fn() -> (From, To)>,
 }
 

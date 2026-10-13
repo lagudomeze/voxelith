@@ -33,7 +33,7 @@ pub struct Adjust<R: Resourceable> {
     ///
     /// 这里用 `PhantomData<R>` 而不是 `PhantomData<fn() -> R>`：`R: Resourceable` 已经蕴含
     /// `R: Send + Sync + 'static`（`Component` 的要求），所以两种写法在 auto trait 上等价，
-    /// 直白的那种更好读。（`Derived` 那边必须用 `fn() -> …`，理由见 `docs/design/bevy/02-derived-rules.md`。）
+    /// 直白的那种更好读。
     _marker: PhantomData<R>,
 }
 
