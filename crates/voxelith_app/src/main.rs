@@ -15,8 +15,8 @@
 use bevy_app::prelude::*;
 use bevy_asset::{AssetPlugin, AssetServer, Assets, LoadState};
 use bevy_ecs::prelude::*;
-use bevy_scene::ScenePlugin;
 use bevy_scene::prelude::*;
+use bevy_scene::ScenePlugin;
 use voxelith_core::prelude::*;
 use voxelith_rules::prelude::*;
 
@@ -82,8 +82,9 @@ fn main() {
 }
 
 /// 等一份配置加载好。**失败要吵**，别静默空转。
+///
+/// 路径是 `&'static str`：`AssetServer::load` 要 `'static` 的路径。
 fn wait_for_config(app: &mut App, path: &'static str) {
-    // AssetServer::load 要 'static 的路径
     let handle = app
         .world()
         .resource::<AssetServer>()
