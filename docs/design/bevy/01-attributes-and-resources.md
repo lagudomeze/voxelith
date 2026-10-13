@@ -214,3 +214,9 @@ Bundle <dynamic bundle> has duplicate components: ["bsn::EquippedOn"]
 ## `.bsn` 文件加载还没来
 
 `bevy_scene` 文档的原话：scene 由 `bsn!` 或 in the future `.bsn` asset files 创建。管道已备（`ScenePatch` 是 `Asset`、`SceneComponent` 是“加载完自动应用”的组件），**解析器尚未实现**。将来文件是**补丁**语义，不是从零描述实体。
+## 变更检测的两条坑（都实测过）
+
+1. **`Changed<T>` 连“刚添加”也算**。刚 spawn 的实体，下一帧查 `Changed<T>` 会全部命中——测试里要断言“只有被改的那条算变”，得先跑一帧预热。
+2. **别把 `Mut<T>` 提前转成 `&mut T`**。`&mut modifier` 这一步会调 `DerefMut`，Bevy 就此标记“变了”，哪怕一个字都没写——于是每帧都标记，下游被连锁触发。想“只在变了才写”，比较与赋值都要留在 system 里（详见 [02-derived-rules.md](02-derived-rules.md) 里那个坑的复现过程）。
+
+配套的写入纪律：**用 `get_mut(实体)` 逐个取，不要遍历所有同类组件**——没事发生的实体就不会被碰。

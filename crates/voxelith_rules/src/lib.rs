@@ -35,6 +35,7 @@ impl Plugin for DerivedRulesPlugin {
                 (
                     derived::sync_health_max_from_constitution,
                     derived::sync_stamina_max_from_willpower,
+                    derived::sync_stamina_regen_from_willpower,
                 ),
             );
     }
@@ -44,7 +45,8 @@ impl Plugin for DerivedRulesPlugin {
 pub mod prelude {
     pub use crate::config::RuleConfig;
     pub use crate::derived::{
-        DerHealthMaxFromConstitution, DerStaminaMaxFromWillpower, Derived, DerivedFor,
+        DerHealthMaxFromConstitution, DerStaminaMaxFromWillpower, DerStaminaRegenFromWillpower,
+        Derived, DerivedFor,
         DerivedModifiers,
     };
     pub use crate::DerivedRulesPlugin;

@@ -35,6 +35,7 @@
 //!
 //! **当前值不走修正**：它是状态，由事件（伤害、治疗、回复）改。
 
+use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use core::marker::PhantomData;
 
@@ -110,12 +111,18 @@ pub trait Value: Component + Sized {
 }
 
 /// 资源：当前值 + 上限。**只有上限可修正。**
-pub trait Resourceable: Component + Sized {
+pub trait Resourceable: Component<Mutability = Mutable> + Sized {
     /// 当前值（状态，由事件改）。
     fn current(&self) -> f32;
 
     /// 上限的基础值。
     fn base_max(&self) -> f32;
+
+    /// 当前值的可变引用。
+    ///
+    /// **只给“改值的唯一通路”用**（[`crate::change::apply_adjustments`]）。别的地方要改当前值，
+    /// 请发一条 [`crate::change::Adjust`] 消息——治疗与扣血必须是同一条通路（`SY-17`）。
+    fn current_mut(&mut self) -> &mut f32;
 
     /// 读出**最终上限**。当前值不走这里。
     fn resolve_max<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Max<Self>>>) -> f32 {

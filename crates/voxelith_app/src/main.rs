@@ -1,7 +1,7 @@
 //! 装配层：把 `voxelith_core` 的模型挂到一个 Bevy App 上。
 //!
 //! 现在**还没有可跑的东西**（没有渲染、没有输入、没有时间推进），所以这里只做
-//! “装配 + 自检”：造一个英雄、读出它的最终属性与血量上限，然后退出。
+//! “装配 + 自检”：造一个英雄、读出它的最终属性与血量上限、走一遍“扣血”，然后退出。
 //! 真正的循环等有东西可跑时再接上。
 //!
 //! 注意 [`Equipment`]：**“修正怎么挂到主人身上”是应用侧的事**（core 不管，理由见
@@ -26,6 +26,10 @@ struct EquippedOn(Entity);
 #[relationship_target(relationship = EquippedOn, linked_spawn)]
 struct Equipment(Vec<Entity>);
 
+/// 自检里那个英雄。
+#[derive(Resource)]
+struct Hero(Entity);
+
 fn main() {
     let mut app = App::new();
     app.add_plugins((
@@ -33,7 +37,13 @@ fn main() {
         AssetPlugin::default(),
         ScenePlugin,
     ));
-    app.add_systems(Startup, setup_hero);
+    // 当前值的唯一写入通路（`SY-17`：治疗与扣血同一条路）
+    app.add_message::<Adjust<Health>>()
+        .add_systems(Startup, setup_hero)
+        .add_systems(
+            Update,
+            (apply_adjustments::<Health>, report_damage).chain(),
+        );
     app.update();
 }
 
@@ -58,15 +68,13 @@ fn setup_hero(world: &mut World) {
 
     let equipment = world.get::<Equipment>(hero).unwrap();
     let strength_mods = equipment
-        .0
         .iter()
-        .filter_map(|m| world.get::<Modifier<Strength>>(*m))
+        .filter_map(|m| world.get::<Modifier<Strength>>(m))
         .cloned()
         .collect::<Vec<_>>();
     let health_mods = equipment
-        .0
         .iter()
-        .filter_map(|m| world.get::<Modifier<Max<Health>>>(*m))
+        .filter_map(|m| world.get::<Modifier<Max<Health>>>(m))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -81,11 +89,23 @@ fn setup_hero(world: &mut World) {
         .resolve(std::iter::empty());
     let max_hp = health.resolve_max(health_mods.iter());
 
-    println!("英雄 {hero:?}（{} 条修正）", equipment.0.len());
+    println!("英雄 {hero:?}（{} 条修正）", equipment.iter().count());
     println!("  力量 {strength}　基础 10 ＋3 －2 ＋ 50% 比例（＋3 与 ＋50% 在同一条修正上）");
     println!("  体质 {constitution}　无修正");
     println!(
         "  血量 {} / {max_hp}　上限 = 基础 60 ＋ 20 平加；当前值不走修正",
         health.current()
     );
+
+    // 挨 7 点伤害：**走消息**，不直接改组件
+    world.write_message(Adjust::<Health>::lose(hero, 7.0, None));
+    world.insert_resource(Hero(hero));
+}
+
+/// 伤害落地之后再看一眼当前值。
+fn report_damage(hero: Res<Hero>, health: Query<&Health>) {
+    let Ok(health) = health.get(hero.0) else {
+        return;
+    };
+    println!("  挨了 7 点 → 当前血量 {}", health.current());
 }

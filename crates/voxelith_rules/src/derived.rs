@@ -63,6 +63,8 @@ pub struct DerivedModifiers(Vec<Entity>);
 pub type DerHealthMaxFromConstitution = Derived<Constitution, Max<Health>>;
 /// 精力上限由意志来。
 pub type DerStaminaMaxFromWillpower = Derived<Willpower, Max<Stamina>>;
+/// 精力回复由意志来（`SY-56`：精力上限与回复 ← 意志）。
+pub type DerStaminaRegenFromWillpower = Derived<Willpower, StaminaRegen>;
 
 // ---- 读配置：缺了要吵，没到货就等 ----
 
@@ -136,6 +138,30 @@ pub(crate) fn sync_stamina_max_from_willpower(
         &Derived<Willpower, Max<Stamina>>,
         &DerivedFor,
         &mut Modifier<Max<Stamina>>,
+    )>,
+) {
+    for (rule, owner, mut modifier) in &mut rules {
+        let Ok(willpower) = owners.get(owner.0) else {
+            continue;
+        };
+        let Some(config) = config_of(&rule.config, &configs, &asset_server, owner.0) else {
+            continue;
+        };
+        let value = derived_value(willpower, config);
+        if modifier.flat != value {
+            modifier.flat = value;
+        }
+    }
+}
+
+pub(crate) fn sync_stamina_regen_from_willpower(
+    asset_server: Res<AssetServer>,
+    configs: Res<Assets<RuleConfig>>,
+    owners: Query<&Willpower>,
+    mut rules: Query<(
+        &Derived<Willpower, StaminaRegen>,
+        &DerivedFor,
+        &mut Modifier<StaminaRegen>,
     )>,
 ) {
     for (rule, owner, mut modifier) in &mut rules {

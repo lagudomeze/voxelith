@@ -28,7 +28,7 @@ impl Value for Dexterity {
     }
 }
 
-/// 体质：血量上限与回复，物理豁免。
+/// 体质：血量上限（`SY-56`），物理豁免。
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Constitution(pub f32);
 
