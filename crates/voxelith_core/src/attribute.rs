@@ -16,8 +16,12 @@ use bevy_ecs::prelude::*;
 pub struct Strength(pub f32);
 
 impl Value for Strength {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -27,8 +31,12 @@ impl Value for Strength {
 pub struct Dexterity(pub f32);
 
 impl Value for Dexterity {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -38,8 +46,12 @@ impl Value for Dexterity {
 pub struct Constitution(pub f32);
 
 impl Value for Constitution {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -49,8 +61,12 @@ impl Value for Constitution {
 pub struct Perception(pub f32);
 
 impl Value for Perception {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -60,8 +76,12 @@ impl Value for Perception {
 pub struct Magic(pub f32);
 
 impl Value for Magic {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -71,8 +91,12 @@ impl Value for Magic {
 pub struct Willpower(pub f32);
 
 impl Value for Willpower {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 

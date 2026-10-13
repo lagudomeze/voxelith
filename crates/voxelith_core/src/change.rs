@@ -16,13 +16,13 @@
 //!    .add_systems(Update, apply_adjustments::<Health>);
 //! ```
 
-use crate::value::Resourceable;
+use crate::value::Value;
 use bevy_ecs::prelude::*;
 use core::marker::PhantomData;
 
-/// 改一条资源的当前值。
+/// 改一个量存着的那个数。\n///\n/// - 改**资源的当前值**：Adjust::<Health>::lose(...)（治疗与扣血同一条路，SY-17）\n/// - 改**属性的基础值**：Adjust::<Strength>::gain(...)（升级加点也走这条路）
 #[derive(Message, Clone, Debug)]
-pub struct Adjust<R: Resourceable> {
+pub struct Adjust<Q: Value> {
     /// 改谁。
     pub entity: Entity,
     /// 改多少（正 = 加，负 = 减）。
@@ -34,10 +34,10 @@ pub struct Adjust<R: Resourceable> {
     /// 这里用 `PhantomData<R>` 而不是 `PhantomData<fn() -> R>`：`R: Resourceable` 已经蕴含
     /// `R: Send + Sync + 'static`（`Component` 的要求），所以两种写法在 auto trait 上等价，
     /// 直白的那种更好读。
-    _marker: PhantomData<R>,
+    _marker: PhantomData<Q>,
 }
 
-impl<R: Resourceable> Adjust<R> {
+impl<Q: Value> Adjust<Q> {
     /// 加（治疗、回复）。
     pub fn gain(entity: Entity, amount: f32, cause: Option<Entity>) -> Self {
         Self {
@@ -65,15 +65,15 @@ impl<R: Resourceable> Adjust<R> {
 /// 也就不会被标成“变了”而去连锁触发下游的变更检测。
 ///
 /// 每条资源注册一份：`apply_adjustments::<Health>`、`::<Stamina>`、`::<Mana>`…
-pub fn apply_adjustments<R: Resourceable>(
-    mut adjustments: MessageReader<Adjust<R>>,
-    mut resources: Query<&mut R>,
+pub fn apply_adjustments<Q: Value>(
+    mut adjustments: MessageReader<Adjust<Q>>,
+    mut values: Query<&mut Q>,
 ) {
     for adjustment in adjustments.read() {
-        let Ok(mut resource) = resources.get_mut(adjustment.entity) else {
-            continue; // 这个实体没有这条资源——按 0 处理，不崩（`QL-04`）
+        let Ok(mut value) = values.get_mut(adjustment.entity) else {
+            continue; // 这个实体没有这个量——按 0 处理，不崩（`QL-04`）
         };
-        *resource.current_mut() += adjustment.amount;
+        *value.raw_mut() += adjustment.amount;
     }
 }
 
@@ -99,7 +99,7 @@ mod tests {
         app.world_mut().write_message(Adjust::<Health>::lose(e, 11.0, None));
         app.update();
 
-        assert_eq!(app.world().get::<Health>(e).unwrap().current, 19.0);
+        assert_eq!(app.world().get::<Health>(e).unwrap().raw(), 19.0);
     }
 
     /// 资源可以为负：负值怎么解释由各自的 system 决定，core 不夹也不判死。
@@ -111,7 +111,7 @@ mod tests {
         app.world_mut().write_message(Adjust::<Health>::lose(e, 5.0, None));
         app.update();
 
-        assert_eq!(app.world().get::<Health>(e).unwrap().current, -5.0);
+        assert_eq!(app.world().get::<Health>(e).unwrap().raw(), -5.0);
     }
 
     /// 没有这条资源的实体：按 0 处理，不崩（`QL-04`）。

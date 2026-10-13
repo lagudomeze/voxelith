@@ -20,13 +20,14 @@
 
 ```
 Strength(pub f32)                 ← 单值型：newtype，标记＝它自己
-Health { current, base_max }      ← 资源：当前值 + 上限
-Max<Health>                       ← 上限那个量的标记（资源有两个值，上限要有名字）
+Health(pub f32)                   ← 资源的当前值（状态，不走修正）
+Max<Health>(pub f32, PhantomData) ← 资源的上限，**本身也是个单值型**（可修正）
+HealthMax = Max<Health>           ← 别名：bsn! 里写 `HealthMax(60.0)`
 
 Modifier<Mark> { flat, ratio }    ← 挂在“修正实体”上的组件：平加 + 比例（可以只给一个）
 
-Value / Resourceable                          ← 读出：单值型 / 资源
-（公式就写在下面两个读出方法里，各一行）
+Value { raw, raw_mut }            ← 唯一的量接口：属性/上限/回复速率/当前值组件都实现它
+（求和不在 core —— 它在 rules 的重算系统里，见 02-derived-rules.md）
 ```
 
 **修正怎么挂到主人身上不在这里**——core 只给修正组件与公式；挂法是应用侧的事（见下面“修正怎么挂”一节）。
@@ -46,7 +47,8 @@ Value / Resourceable                          ← 读出：单值型 / 资源
 pub struct Strength(pub f32);
 
 impl Value for Strength {
-    fn base(&self) -> f32 { self.0 }
+    fn raw(&self) -> f32 { self.0 }
+    fn raw_mut(&mut self) -> &mut f32 { &mut self.0 }
 }
 
 // 另外五项：Dexterity / Constitution / Perception / Magic / Willpower，形状完全一样
@@ -54,44 +56,40 @@ impl Value for Strength {
 
 `Value` 的标记就是实现者自己，所以不需要 `type Mark = Self` 这种重复写法。
 
-## 资源：当前值 + 上限
+## 资源：拆成两个组件
 
 ```rust
 #[derive(Component, Clone, Copy, Debug, Default)]
-pub struct Health {
-    pub current: f32,    // 状态：由事件（伤害/治疗/回复）改，不走修正
-    pub base_max: f32,   // 上限的基础值：修正加在它上面
+#[require(Max<Health>)]      // 有当前值就有上限（传递依赖：上限又 require 了它的 Total）
+pub struct Health(pub f32);  // 当前值：状态，由事件改，不挂 Total
+
+impl Value for Health {
+    fn raw(&self) -> f32 { self.0 }
+    fn raw_mut(&mut self) -> &mut f32 { &mut self.0 }
 }
 
-impl Resourceable for Health {
-    fn current(&self) -> f32 { self.current }
-    fn base_max(&self) -> f32 { self.base_max }
-}
-
+// 上限本体在 core::value，这里只起名（bsn! 里写不出 `Max::<Health>` 那种路径）
+pub type HealthMax = Max<Health>;
 pub type ModHealthMax = Modifier<Max<Health>>;
 ```
 
-**上限的标记是 `Max<T>`**——不用每个资源手写一个 `HealthMax` 那样的标记类型。
-
-## 读出：一条公式
+**上限不是"资源的一部分"，它自己就是一个可修正的量**——所以重算只有一条路径：
 
 ```rust
-pub trait Value: Component + Sized {
-    fn base(&self) -> f32;
+recompute::<Strength, L>      // 属性
+recompute::<Max<Health>, L>   // 血量上限：同一个泛型系统
+```
 
-    /// 读出：基础值 + Σ每条修正的贡献（比例按基础值算）。
-    fn resolve<'a>(&'a self, modifiers: impl Iterator<Item = &'a Modifier<Self>>) -> f32 {
-        let base = self.base();
-        base + modifiers.map(|m| m.contribution(base)).sum::<f32>()
-    }
-}
+## 量：一个 trait
 
-pub trait Resourceable: Component<Mutability = Mutable> + Sized {
-    fn current(&self) -> f32;
-    fn base_max(&self) -> f32;
-    fn current_mut(&mut self) -> &mut f32;   // 只给“改值的唯一通路”用
+```rust
+pub trait Value: Component<Mutability = Mutable> + Sized {
+    fn raw(&self) -> f32;                 // 取数（属性的基础值 / 资源的当前值 / 上限的基础值）
+    fn raw_mut(&mut self) -> &mut f32;    // 只给“改值的唯一通路”（Adjust）用
 }
 ```
+
+求和不在 core：它要按项目自己的挂法去找修正，所以住在 `voxelith_rules::recompute`。
 
 **求和不在 traits 里**——它要按项目自己的挂法去找修正，所以住在 `voxelith_rules::recompute`（见 [02-derived-rules.md](02-derived-rules.md)）。core 只给"一条修正贡献多少"（`Modifier::contribution`）与"基础值是多少"。
 
@@ -179,7 +177,10 @@ pub type ModHealthMax = Modifier<Max<Health>>;      // 资源：标记＝上限
 world.spawn_scene(bsn! {
     #Hero
     Strength(10.0)                                 // 单值型：tuple 写法
-    Health { current: 30.0, base_max: 60.0 }       // 资源：具名字段
+    Health(30.0)                                   // 当前值：tuple 写法
+    HealthMax(60.0)                                // 上限：别名 + tuple，phantom 自动默认
+                                                   //（实测：别名在 bsn! 里能当类型用；
+                                                   //  在 Rust 代码里不能当构造函数，用 Max::new）
     Equipment [
         ModStrength { flat: 5.0 },
         ModStrength { flat: -2.0 },                   // 减
@@ -234,7 +235,7 @@ pub struct Strength(pub f32);
 
 #[derive(Component, Clone, Copy, Debug, Default)]
 #[require(Total<Max<Health>>)]
-pub struct Health { pub current: f32, pub base_max: f32 }
+pub struct Max<Q: Value>(pub f32, PhantomData<Q>)
 ```
 
 读的人只读 `Total`，重算的人（知道修正怎么挂）写它。这带来一个副产品：**基础值可以保持 `pub f32`**（`bsn!` 要能构造它），而"最终值"永远从 `Total` 读——两者不再混在一起。

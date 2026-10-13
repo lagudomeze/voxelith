@@ -45,7 +45,8 @@ fn bsn_puts_the_rule_on_the_owner() {
         .spawn_scene(bsn! {
             #Hero
             Constitution(12.0)
-            Health { current: 30.0, base_max: 60.0 }
+            Health(30.0)
+            HealthMax(60.0)
             DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
         })
         .expect("spawn_scene 失败")
@@ -75,10 +76,8 @@ fn constitution_drives_the_max() {
     let hero = world
         .spawn((
             Constitution(12.0),
-            Health {
-                current: 30.0,
-                base_max: 60.0,
-            },
+            Health(30.0),
+            Max::<Health>::new(60.0),
             DerHealthMaxFromConstitution::new(handle),
         ))
         .id();
@@ -112,10 +111,8 @@ fn equipment_given_constitution_flows_into_the_max() {
     let hero = world
         .spawn((
             Constitution(12.0),
-            Health {
-                current: 30.0,
-                base_max: 60.0,
-            },
+            Health(30.0),
+            Max::<Health>::new(60.0),
             DerHealthMaxFromConstitution::new(handle),
         ))
         .id();
@@ -231,10 +228,8 @@ fn config_loads_from_a_ron_file() {
     let hero = world
         .spawn((
             Constitution(12.0),
-            Health {
-                current: 30.0,
-                base_max: 60.0,
-            },
+            Health(30.0),
+            Max::<Health>::new(60.0),
             DerHealthMaxFromConstitution::new(handle),
         ))
         .id();

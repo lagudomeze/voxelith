@@ -1,86 +1,76 @@
-//! 资源池：当前值 + 上限，以及它们的**回复速率**。
+//! 资源池：**当前值 + 上限**（拆成两个组件）+ 回复速率。
 //!
-//! 每条资源有**三个**量：当前值（状态）、基础上限、基础回复速率（每秒多少）。
-//! **只有上限与回复速率可修正**：有效值在 [`Total`] 里（上限是 `Total<Max<资源>>`，
-//! 回复速率是 `Total<回复速率>`）；当前值是状态，由事件（[`crate::change::Adjust`]）改。
+//! 每条资源是**两个组件**，靠 `#[require]` 绑在一起：
+//!
+//! | 组件 | 是什么 | 可修正？ |
+//! | --- | --- | --- |
+//! | `Health(pub f32)` | **当前值**——状态，由事件（[`crate::change::Adjust`]）改 | ✗ 不挂 `Total`、不注册重算（约定） |
+//! | [`HealthMax`] = `Max<Health>` | **基础上限**——本身是个 [`Value`] | ✓ 有效上限在 `Total<Max<Health>>` |
+//! | `HealthRegen(pub f32)` | **基础回复速率**（每秒多少） | ✓ 有效速率在 `Total<HealthRegen>` |
+//!
+//! 拆开的好处：上限直接复用 [`Value`] 的修正能力与缓存，不需要第二个 trait，也不需要第二条重算路径。
 //!
 //! 哪些资源人人都有、哪些按角色配置、以及各自的模型（小幅回复 / 不回靠赚 / 越高越糟 /
 //! 动态衰减 / 挨打才涨 / 硬上限），见 `docs/design/01-attributes-and-resources.md`。
 
-use crate::value::{Max, Modifier, Resourceable, Total, Value};
+use crate::value::{Max, Modifier, Total, Value};
 use bevy_ecs::prelude::*;
 
-/// 血量。
+/// 血量：当前值（状态）。
 #[derive(Component, Clone, Copy, Debug, Default)]
-#[require(Total<Max<Health>>)]
-pub struct Health {
-    /// 当前值。状态，由事件改。
-    pub current: f32,
-    /// 基础上限。修正加在它上面，有效上限在 `Total<Max<Health>>`。
-    pub base_max: f32,
-}
+#[require(Max<Health>)]
+pub struct Health(pub f32);
 
-impl Resourceable for Health {
-    fn current(&self) -> f32 {
-        self.current
+impl Value for Health {
+    fn raw(&self) -> f32 {
+        self.0
     }
 
-    fn base_max(&self) -> f32 {
-        self.base_max
-    }
-
-    fn current_mut(&mut self) -> &mut f32 {
-        &mut self.current
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
-/// 精力。
+/// 精力：当前值（状态）。
 #[derive(Component, Clone, Copy, Debug, Default)]
-#[require(Total<Max<Stamina>>)]
-pub struct Stamina {
-    /// 当前值。状态，由事件改。
-    pub current: f32,
-    /// 基础上限。修正加在它上面，有效上限在 `Total<Max<Stamina>>`。
-    pub base_max: f32,
-}
+#[require(Max<Stamina>)]
+pub struct Stamina(pub f32);
 
-impl Resourceable for Stamina {
-    fn current(&self) -> f32 {
-        self.current
+impl Value for Stamina {
+    fn raw(&self) -> f32 {
+        self.0
     }
 
-    fn base_max(&self) -> f32 {
-        self.base_max
-    }
-
-    fn current_mut(&mut self) -> &mut f32 {
-        &mut self.current
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
-/// 法力。**不是人人都有**（`SY-01`：按角色配置）。
+/// 法力：当前值（状态）。**不是人人都有**（`SY-01`：按角色配置）。
 #[derive(Component, Clone, Copy, Debug, Default)]
-#[require(Total<Max<Mana>>)]
-pub struct Mana {
-    /// 当前值。状态，由事件改。
-    pub current: f32,
-    /// 基础上限。修正加在它上面，有效上限在 `Total<Max<Mana>>`。
-    pub base_max: f32,
-}
+#[require(Max<Mana>)]
+pub struct Mana(pub f32);
 
-impl Resourceable for Mana {
-    fn current(&self) -> f32 {
-        self.current
+impl Value for Mana {
+    fn raw(&self) -> f32 {
+        self.0
     }
 
-    fn base_max(&self) -> f32 {
-        self.base_max
-    }
-
-    fn current_mut(&mut self) -> &mut f32 {
-        &mut self.current
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
+
+// ---- 上限：每个资源一个别名，`bsn!` 里就用它们 ----
+//
+// `Max<Q>` 本体在 `crate::value`；这里只起名字，因为 `bsn!` 里写不出 `Max::<Health>` 那种路径。
+
+/// 血量上限的基础值（有效上限在 `Total<Max<Health>>`）。
+pub type HealthMax = Max<Health>;
+/// 精力上限的基础值。
+pub type StaminaMax = Max<Stamina>;
+/// 法力上限的基础值。
+pub type ManaMax = Max<Mana>;
 
 // ---- 回复速率：每条资源一个量（`SY-56`：精力上限**与回复** ← 意志）----
 //
@@ -92,8 +82,12 @@ impl Resourceable for Mana {
 pub struct HealthRegen(pub f32);
 
 impl Value for HealthRegen {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -103,8 +97,12 @@ impl Value for HealthRegen {
 pub struct StaminaRegen(pub f32);
 
 impl Value for StaminaRegen {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -114,8 +112,12 @@ impl Value for StaminaRegen {
 pub struct ManaRegen(pub f32);
 
 impl Value for ManaRegen {
-    fn base(&self) -> f32 {
+    fn raw(&self) -> f32 {
         self.0
+    }
+
+    fn raw_mut(&mut self) -> &mut f32 {
+        &mut self.0
     }
 }
 
@@ -139,38 +141,44 @@ pub type ModManaRegen = Modifier<ManaRegen>;
 mod tests {
     use super::*;
 
-    /// 每个量一出生就带一份有效值缓存（`#[require]` 干的），所以 `bsn!` 里不用写。
+    /// 一条资源 = 两个组件：有当前值就有上限，上限自己带缓存（`#[require]` 传递）。
     #[test]
-    fn every_quantity_gets_a_cache_slot() {
+    fn resource_is_two_components() {
         let mut world = World::new();
+        let e = world.spawn(Health(30.0)).id();
 
-        let e = world
-            .spawn((
-                Health::default(),
-                Stamina::default(),
-                Mana::default(),
-                HealthRegen::default(),
-                StaminaRegen::default(),
-                ManaRegen::default(),
-            ))
-            .id();
-
-        assert!(world.get::<Total<Max<Health>>>(e).is_some());
-        assert!(world.get::<Total<Max<Stamina>>>(e).is_some());
-        assert!(world.get::<Total<Max<Mana>>>(e).is_some());
-        assert!(world.get::<Total<HealthRegen>>(e).is_some());
-        assert!(world.get::<Total<StaminaRegen>>(e).is_some());
-        assert!(world.get::<Total<ManaRegen>>(e).is_some());
+        assert_eq!(world.get::<Health>(e).unwrap().raw(), 30.0);
+        assert!(world.get::<Max<Health>>(e).is_some(), "上限该被自动带上");
+        assert!(
+            world.get::<Total<Max<Health>>>(e).is_some(),
+            "上限的缓存该被传递带上"
+        );
     }
 
-    /// 每条资源的修正各指各的：血量上限与法力上限是两个不同的标记
-    /// （类型不同，互相塞是编译期错误）。
+    /// 上限是个量：能改、能被修正，而当前值只是状态。
+    #[test]
+    fn max_is_modifiable_and_current_is_state() {
+        let mut world = World::new();
+        let e = world.spawn(Health(30.0)).id();
+
+        // 上限：写基础值 + 算一条修正的贡献
+        world.get_mut::<Max<Health>>(e).unwrap().0 = 60.0;
+        let modifier = ModHealthMax::new(20.0, 0.5);
+        let base = world.get::<Max<Health>>(e).unwrap().raw();
+        assert_eq!(base, 60.0);
+        assert_eq!(base + modifier.contribution(base), 110.0); // 60 + 20 + 30
+
+        // 当前值：状态，靠 raw_mut 改
+        *world.get_mut::<Health>(e).unwrap().raw_mut() += 7.0;
+        assert_eq!(world.get::<Health>(e).unwrap().raw(), 37.0);
+    }
+
+    /// 每条资源的修正各指各的（血量上限与法力上限是两个不同的标记）。
     #[test]
     fn modifier_targets_are_distinct() {
         let health = ModHealthMax::flat(5.0);
         let mana = ModManaMax::flat(5.0);
 
-        // 平加 5 → contribution 就是 5（基础值不参与平加）
         assert_eq!(health.contribution(10.0), 5.0);
         assert_eq!(mana.contribution(10.0), 5.0);
         assert_eq!(health.flat, mana.flat);
@@ -182,20 +190,19 @@ mod tests {
         let regen = StaminaRegen(1.0);
         let modifier = ModStaminaRegen::flat(0.5);
 
-        assert_eq!(regen.base(), 1.0);
-        assert_eq!(regen.base() + modifier.contribution(regen.base()), 1.5);
+        assert_eq!(regen.raw(), 1.0);
+        assert_eq!(regen.raw() + modifier.contribution(regen.raw()), 1.5);
     }
 
-    /// 当前值是状态：只有“改值的唯一通路”能写它。
+    /// 三个资源各带自己的上限与缓存。
     #[test]
-    fn current_value_is_state() {
-        let mut health = Health {
-            current: 30.0,
-            base_max: 60.0,
-        };
-        assert_eq!(health.current(), 30.0);
-        *health.current_mut() += 7.0;
-        assert_eq!(health.current(), 37.0);
-        assert_eq!(health.base_max(), 60.0, "上限不受当前值影响");
+    fn every_pool_gets_its_own_components() {
+        let mut world = World::new();
+        let e = world.spawn((Health(30.0), Stamina(20.0), Mana(10.0))).id();
+
+        assert!(world.get::<Total<Max<Health>>>(e).is_some());
+        assert!(world.get::<Total<Max<Stamina>>>(e).is_some());
+        assert!(world.get::<Total<Max<Mana>>>(e).is_some());
+        assert_eq!(world.get::<Mana>(e).unwrap().raw(), 10.0);
     }
 }

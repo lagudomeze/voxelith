@@ -24,7 +24,7 @@ use core::marker::PhantomData;
 
 pub use config::{RuleConfig, RuleConfigLoader};
 pub use derived::*;
-pub use recalc::{DerivedRules, RecalcAttributes, RecalcTotals, recompute, recompute_max};
+pub use recalc::{DerivedRules, RecalcAttributes, RecalcTotals, recompute};
 
 /// 把规则层接上：**重算有效值 + 派生**，顺序也一并定好。
 ///
@@ -74,5 +74,5 @@ pub mod prelude {
         Derived,
     };
     pub use crate::recalc::{DerivedRules, RecalcAttributes, RecalcTotals};
-    pub use crate::{RulesPlugin, recompute, recompute_max};
+    pub use crate::{RulesPlugin, recompute};
 }

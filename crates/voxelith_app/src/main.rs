@@ -57,7 +57,8 @@ fn main() {
             #Hero
             Strength(10.0)
             Constitution(12.0)
-            Health { current: 30.0, base_max: 60.0 }
+            Health(30.0)
+            HealthMax(60.0)   // 当前值与上限是两个组件（别名 = Max<Health>）
             Equipment [
                 // 一条修正同时带平加和比例
                 ModStrength { flat: 3.0, ratio: 0.5 },
@@ -120,6 +121,6 @@ fn report(world: &World, hero: Entity) {
     );
     println!(
         "  当前血量 {}　不算修正；挨了 7 点，走 Adjust 消息",
-        health.current()
+        health.raw()
     );
 }

@@ -49,7 +49,7 @@ fn recompute_strength(
     modifiers: Query<&Modifier<Strength>>,
 ) {
     for (strength, gear, buffs, mut total) in &mut owners {
-        let base = strength.base();
+        let base = strength.raw();
         let value = sum(
             base,
             gear.0
@@ -66,11 +66,11 @@ fn recompute_strength(
 
 #[allow(clippy::type_complexity, reason = "同上")]
 fn recompute_max_hp(
-    mut owners: Query<(&Health, &Gear, &mut Total<Max<Health>>)>,
+    mut owners: Query<(&Max<Health>, &Gear, &mut Total<Max<Health>>)>,
     modifiers: Query<&Modifier<Max<Health>>>,
 ) {
-    for (health, gear, mut total) in &mut owners {
-        let base = health.base_max();
+    for (max, gear, mut total) in &mut owners {
+        let base = max.raw();
         let value = sum(
             base,
             gear.0
@@ -101,7 +101,7 @@ fn report(
     for (strength, max_hp, health) in &owners {
         reported.strength = strength.value;
         reported.max_hp = max_hp.value;
-        reported.current_hp = health.current();
+        reported.current_hp = health.raw();
     }
 }
 
@@ -127,15 +127,10 @@ fn a_system_reads_values_straight_from_its_queries() {
 }
 
 fn setup(world: &mut World) {
-    let hero = world
-        .spawn((
-            Strength(10.0),
-            Health {
-                current: 30.0,
-                base_max: 60.0,
-            },
-        ))
-        .id();
+    // 注意：类型别名（`HealthMax`）在 `bsn!` 里能当类型用，但在 Rust 代码里**不能当构造函数**，
+    // 所以这里先 spawn 当前值（`#[require]` 会自动带上上限），再写上限的基础值。
+    let hero = world.spawn((Strength(10.0), Health(30.0))).id();
+    world.get_mut::<Max<Health>>(hero).unwrap().0 = 60.0;
 
     // 装备：+5 力量、+20 血量上限
     world.spawn((FromGear(hero), ModStrength::flat(5.0)));

@@ -32,7 +32,8 @@ pub type DerHealthMaxFromConstitution = Derived<Constitution, Max<Health>>;
 world.spawn_scene(bsn! {
     #Hero
     Constitution(12.0)
-    Health { current: 30.0, base_max: 60.0 }
+    Health(30.0)
+    HealthMax(60.0)        // 当前值与上限是两个组件；别名在 bsn! 里能当类型用
     DerHealthMaxFromConstitution { config: "rules/health_from_constitution.ron" }
 })
 ```
@@ -53,7 +54,9 @@ pub struct Strength(pub f32);
 
 #[derive(Component, Clone, Copy, Debug, Default)]
 #[require(Total<Max<Health>>)]
-pub struct Health { pub current: f32, pub base_max: f32 }
+pub struct Health(pub f32);                      // 当前值
+#[require(Total<Max<Health>>)]
+pub struct Max<Q: Value>(pub f32, PhantomData<Q>);   // 上限，本身也是个 Value
 ```
 
 `#[require(Total<某量>)]` 这种**带泛型实例**的 required component 实测可用（`Modifier<To>` 那条也是）。
@@ -186,7 +189,7 @@ where From: Send + Sync + 'static + Unpin, To: Send + Sync + 'static + Unpin
 | `PhantomData<fn() -> T>` | **永远 `Send + Sync + Unpin`** | **只在需要“提到 T 但不继承它的约束”时**：这里 `Derived` 就是（手写 `FromTemplate` 要求这个字段自己有 `Template`，而泛型 `(From, To)` 证不出 `Unpin`） |
 | `PhantomData<*const T>` | 永远**不** `Send`/`Sync` | 要让类型不 Send 时（我们没用到） |
 
-即：**先问 T 是不是已经满足了你要的约束**——是就用 `PhantomData<T>`，不是才上 `fn() -> T`。`Adjust<R>`（core 的改值消息）里我一开始照抄了 `fn() -> R`，其实多余（`R: Resourceable` 已经蕴含 `Send + Sync + 'static`），已经改回 `PhantomData<R>`。
+即：**先问 T 是不是已经满足了你要的约束**——是就用 `PhantomData<T>`，不是才上 `fn() -> T`。`Adjust<Q>`（core 的改值消息）里我一开始照抄了 `fn() -> Q`，其实多余（`Q: Value` 已经蕴含 `Send + Sync + 'static`），已经改回 `PhantomData<Q>`。
 
 `Derived` 这里三条路都试过（实测）：
 

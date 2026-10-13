@@ -79,7 +79,7 @@ fn modifier_can_be_written_with_turbofish_or_alias() {
     let equipment = world.get::<Equipment>(raw).unwrap();
     assert_eq!(
         total(
-            strength.base(),
+            strength.raw(),
             equipment
                 .0
                 .iter()
@@ -93,7 +93,7 @@ fn modifier_can_be_written_with_turbofish_or_alias() {
     let equipment = world.get::<Equipment>(aliased).unwrap();
     assert_eq!(
         total(
-            strength.base(),
+            strength.raw(),
             equipment
                 .0
                 .iter()
@@ -117,7 +117,8 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
         .spawn_scene(bsn! {
             #Hero
             Strength(10.0)
-            Health { current: 30.0, base_max: 60.0 }
+            Health(30.0)
+            HealthMax(60.0)   // ← 上限是另一个组件（别名 = Max<Health>）
             Equipment [
                 // 一条修正同时带平加和比例
                 ModStrength { flat: 5.0, ratio: 0.5 },
@@ -133,7 +134,7 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
     let strength = world.get::<Strength>(hero).unwrap();
     assert_eq!(
         total(
-            strength.base(),
+            strength.raw(),
             equipment
                 .0
                 .iter()
@@ -143,10 +144,10 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
         20.0 // 10 + 5 + 10 × 0.5
     );
 
-    let health = world.get::<Health>(hero).unwrap();
+    let max = world.get::<HealthMax>(hero).unwrap();
     assert_eq!(
         total(
-            health.base_max(),
+            max.raw(),
             equipment
                 .0
                 .iter()
@@ -155,7 +156,8 @@ fn hero_with_modifiers_can_be_written_entirely_in_bsn() {
         ),
         80.0 // 60 + 20
     );
-    assert_eq!(health.current, 30.0, "当前值不走修正");
+    let health = world.get::<Health>(hero).unwrap();
+    assert_eq!(health.raw(), 30.0, "当前值是状态，不走修正");
 }
 
 /// `linked_spawn` 带来的顺带好处：卸下 = 销毁修正实体，主人没了它也跟着走。
