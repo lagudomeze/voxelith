@@ -1,1 +1,4 @@
 target/
+
+# DSH harness 自己的目录（技能目录等），不属于这个项目
+.dsh/
