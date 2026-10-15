@@ -13,13 +13,21 @@
 //! 这一层**依赖 `bevy_asset` 与 `bevy_app`**，所以不放在 `voxelith_core`——core 只有
 //! `bevy_ecs`，保持“无资产、无渲染也能测”。
 
+mod action;
 mod config;
 mod derived;
 mod recalc;
+mod time;
 
 use bevy_app::prelude::*;
 use bevy_asset::AssetApp;
 use bevy_ecs::prelude::*;
+use bevy_time::TimePlugin;
+
+use voxelith_core::prelude::{Adjust, Health, Mana, Stamina, apply_adjustments};
+
+use crate::action::{BeginAction, ResolveAction};
+use crate::time::Freeze;
 
 pub use config::{RuleConfig, RuleConfigLoader};
 pub use derived::*;
@@ -41,6 +49,35 @@ pub struct RulesPlugin;
 
 impl Plugin for RulesPlugin {
     fn build(&self, app: &mut App) {
+        // 时钟：世界该不该走，靠 Freeze 三个触发决定。
+        // TimePlugin 由我们补上（rules 自己就能跑起来，不用装配层记得加）。
+        if !app.is_plugin_added::<TimePlugin>() {
+            app.add_plugins(TimePlugin);
+        }
+        app.init_resource::<Freeze>()
+            // 推进权只有一个地方：apply_freeze（RunFixedMainLoop 之前）
+            .add_systems(PreUpdate, time::apply_freeze);
+
+        // 行动：释放与到点都住 FixedUpdate，与时间轴同频。
+        app.add_message::<BeginAction>()
+            .add_message::<ResolveAction>()
+            // 改值消息也归这里注册：注册系统却不注册消息，运行时会直接报“资源不存在”
+            .add_message::<Adjust<Health>>()
+            .add_message::<Adjust<Stamina>>()
+            .add_message::<Adjust<Mana>>()
+            .add_systems(
+                FixedUpdate,
+                (
+                    // 改值的唯一通路：三种资源的当前值都从这里落地
+                    apply_adjustments::<Health>,
+                    apply_adjustments::<Stamina>,
+                    apply_adjustments::<Mana>,
+                    action::begin_actions,
+                    action::resolve_actions,
+                )
+                    .chain(),
+            );
+
         // 有效值缓存的重算（认识归属的那一半）
         recalc::install(app);
 
@@ -66,6 +103,11 @@ pub mod prelude {
         ApplyParts, Formula, HealthMaxFromConstitution, StaminaMaxFromWillpower,
         StaminaRegenFromWillpower,
     };
+    pub use crate::action::{
+        Action, ActionOf, ActionParams, Actions, BeginAction, ParamKind, Potency, ResolveAction,
+        SkillDef, SkillId, begin_actions, cancel_action, resolve_actions, skill_def,
+    };
     pub use crate::recalc::{DerivedRules, RecalcAttributes, RecalcTotals, RecomputeParts};
+    pub use crate::time::{Freeze, apply_freeze, round_to_step, seconds_to_step};
     pub use crate::{RulesPlugin, recompute};
 }

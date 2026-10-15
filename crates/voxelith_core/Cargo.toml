@@ -6,6 +6,8 @@ rust-version.workspace = true
 
 [dependencies]
 bevy_ecs.workspace = true
+# 格坐标用 IVec3：纯数学依赖，不碰 ECS 之外的东西。
+bevy_math.workspace = true
 
 [dev-dependencies]
 # 只在测试里用：验证组件形状真的能被 `bsn!` 表达。运行时不需要。

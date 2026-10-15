@@ -20,6 +20,7 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use voxelith_core::prelude::*;
+use crate::action::Potency;
 
 /// 第一段：六项属性的有效值。
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -89,6 +90,8 @@ pub(crate) fn install(app: &mut App) {
             recompute::<Perception>,
             recompute::<Magic>,
             recompute::<Willpower>,
+            // 行动的强度也是可修正的量（SY-41 的“此刻”），走同一条重算
+            recompute::<Potency>,
         )
             .in_set(RecalcAttributes),
     );

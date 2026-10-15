@@ -10,6 +10,8 @@ bevy_ecs.workspace = true
 bevy_app.workspace = true
 bevy_asset.workspace = true
 bevy_reflect.workspace = true
+# 世界时钟：Time<Virtual> 当暂停开关 + Time<Fixed> 64 步/秒。
+bevy_time.workspace = true
 serde.workspace = true
 ron.workspace = true
 

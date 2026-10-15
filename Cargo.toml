@@ -18,6 +18,9 @@ bevy_app = "0.19"
 bevy_asset = "0.19"
 bevy_scene = "0.19"
 bevy_reflect = "0.19"
+bevy_time = "0.19"
+# 只要 glam 的那些整数/浮点向量类型；默认 feature 会带上 rand 与 curve，这里关掉。
+bevy_math = { version = "0.19", default-features = false, features = ["std"] }
 # `debug` 让组件相关的报错能打出组件名（例如“重复组件”），很值。
 bevy_ecs = { version = "0.19", features = ["debug"] }
 

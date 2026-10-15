@@ -5,10 +5,11 @@
 //!
 //! | 模块 | 管什么 |
 //! | --- | --- |
-//! | [`value`] | **可修正的量**这一层的基础代码：修正 [`value::Modifier`]、读出接口 [`value::Value`] / [`value::Resourceable`]、上限标记 [`value::Max`] |
+//! | [`value`] | **可修正的量**这一层的基础代码：修正 [`value::Modifier`]、归属 [`value::Affects`] / [`value::Modifiers`]、量接口 [`value::Value`]、上限 [`value::Max`]、有效值缓存 [`value::Total`] |
 //! | [`attribute`] | 六项标准属性——每个就是一个 newtype（标记＝自己）+ 修正别名 |
 //! | [`resource`] | 资源：血量、精力、法力（当前值 + 上限 + 回复速率）+ 修正别名 |
 //! | [`change`] | **改值**：当前值的唯一写入通路 [`change::Adjust`] + [`change::apply_adjustments`] |
+//! | [`space`] | **格坐标** [`space::TilePos`]：逻辑位置永远是离散格 |
 //!
 //! 约定：**加一项属性＝在 `attribute` 里照抄一段**（七行）；加一条资源＝在 `resource` 里
 //! 照抄一段（struct + `impl Resourceable` + 回复速率 + 别名）。
@@ -16,6 +17,7 @@
 pub mod attribute;
 pub mod change;
 pub mod resource;
+pub mod space;
 pub mod value;
 
 /// 常用类型的入口。
@@ -27,5 +29,6 @@ pub mod prelude {
     pub use crate::attribute::*;
     pub use crate::change::*;
     pub use crate::resource::*;
+    pub use crate::space::*;
     pub use crate::value::*;
 }
