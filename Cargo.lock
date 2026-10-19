@@ -1863,6 +1863,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "voxelith_probes"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_asset",
+ "bevy_ecs",
+ "bevy_scene",
+ "bevy_time",
+ "voxelith_core",
+ "voxelith_rules",
+]
+
+[[package]]
 name = "voxelith_rules"
 version = "0.1.0"
 dependencies = [

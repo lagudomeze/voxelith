@@ -13,6 +13,7 @@
 //! 哪些资源人人都有、哪些按角色配置、以及各自的模型（小幅回复 / 不回靠赚 / 越高越糟 /
 //! 动态衰减 / 挨打才涨 / 硬上限），见 `docs/design/01-attributes-and-resources.md`。
 
+use crate::cost::Cost;
 use crate::value::{Max, Modifier, Total, Value};
 use bevy_ecs::prelude::*;
 
@@ -136,6 +137,13 @@ pub type ModHealthRegen = Modifier<HealthRegen>;
 pub type ModStaminaRegen = Modifier<StaminaRegen>;
 /// 法力回复的修正。
 pub type ModManaRegen = Modifier<ManaRegen>;
+
+// ---- 代价别名（`bsn!` 与内容里用这些名字）----
+
+/// 要扣多少法力。
+pub type ManaCost = Cost<Mana>;
+/// 要扣多少精力（`GP-44`：冲刺也扣精力）。
+pub type StaminaCost = Cost<Stamina>;
 
 #[cfg(test)]
 mod tests {

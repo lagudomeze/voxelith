@@ -8,7 +8,8 @@
 //! | [`value`] | **可修正的量**这一层的基础代码：修正 [`value::Modifier`]、归属 [`value::Affects`] / [`value::Modifiers`]、量接口 [`value::Value`]、上限 [`value::Max`]、有效值缓存 [`value::Total`] |
 //! | [`attribute`] | 六项标准属性——每个就是一个 newtype（标记＝自己）+ 修正别名 |
 //! | [`resource`] | 资源：血量、精力、法力（当前值 + 上限 + 回复速率）+ 修正别名 |
-//! | [`change`] | **改值**：当前值的唯一写入通路 [`change::Adjust`] + [`change::apply_adjustments`] |
+//! | [`change`] | **改值**：唯一通路 [`change::change`]（带实体）；[`change::Adjust`] 是给"不需要当场知道结果"的改动用的消息 |
+//! | [`cost`] | **代价**：[`cost::Cost<Q>`] 给一条量标个价（一种量一个组件） |
 //! | [`space`] | **格坐标** [`space::TilePos`]：逻辑位置永远是离散格 |
 //!
 //! 约定：**加一项属性＝在 `attribute` 里照抄一段**（七行）；加一条资源＝在 `resource` 里
@@ -16,6 +17,7 @@
 
 pub mod attribute;
 pub mod change;
+pub mod cost;
 pub mod resource;
 pub mod space;
 pub mod value;
@@ -28,6 +30,7 @@ pub mod value;
 pub mod prelude {
     pub use crate::attribute::*;
     pub use crate::change::*;
+    pub use crate::cost::*;
     pub use crate::resource::*;
     pub use crate::space::*;
     pub use crate::value::*;

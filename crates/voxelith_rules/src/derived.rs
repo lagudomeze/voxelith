@@ -107,14 +107,15 @@ where
 
             let value = item.from.value * config.per_point;
 
-            match item.modifier.as_deref_mut() {
-                // 已经有那条修正：只在变了的时候改（别每帧都标记）
+            // ⚠️ 用 `as_mut()`，不要用 `as_deref_mut()`：后者一取就调 `DerefMut`，
+            // Bevy 立刻标记"变了" ✗ 那样每帧都标记，下游变更检测被连锁触发（踩过两次的坑）。
+            match item.modifier.as_mut() {
+                // 已经有那条修正：读不标记，只有真写下去才标记
                 Some(modifier) => {
                     if modifier.flat != value {
                         modifier.flat = value;
                     }
-                }
-                // 还没有：补一条自指的修正（下次重算就会把它算进 Total）
+                }                // 还没有：补一条自指的修正（下次重算就会把它算进 Total）
                 None => {
                     let owner = item.owner;
                     commands

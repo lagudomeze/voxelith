@@ -1,0 +1,18 @@
+[package]
+name = "voxelith_probes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# 探针/实验专用：不属于游戏。单独成 crate 是为了改探针不牵动主 crate 的构建。
+[dependencies]
+voxelith_core.workspace = true
+voxelith_rules.workspace = true
+
+[dev-dependencies]
+bevy_app.workspace = true
+bevy_asset.workspace = true
+bevy_ecs.workspace = true
+bevy_scene.workspace = true
+bevy_time.workspace = true

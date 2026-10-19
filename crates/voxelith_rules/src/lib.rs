@@ -15,6 +15,7 @@
 
 mod action;
 mod config;
+mod cost;
 mod derived;
 mod recalc;
 mod time;
@@ -99,6 +100,7 @@ impl Plugin for RulesPlugin {
 /// 常用类型的入口。
 pub mod prelude {
     pub use crate::config::RuleConfig;
+    pub use crate::cost::{Costs, RejectReason, ResourceKind, try_pay};
     pub use crate::derived::{
         ApplyParts, Formula, HealthMaxFromConstitution, StaminaMaxFromWillpower,
         StaminaRegenFromWillpower,

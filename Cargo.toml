@@ -3,6 +3,7 @@ members = [
     "crates/voxelith_core",
     "crates/voxelith_rules",
     "crates/voxelith_app",
+    "crates/voxelith_probes",
 ]
 resolver = "3"
 

@@ -7,6 +7,7 @@
 | crate | 放什么 | 依赖 |
 | --- | --- | --- |
 | `voxelith_core` | 与引擎无关的模型（目前只有[属性与资源](01-attributes-and-resources.md)） | **只有 `bevy_ecs`** |
+| `voxelith_probes` | **探针 / 实验**：只放"验证引擎行为或设计假设"的小测试 ✓ 不属于游戏 ✓ 单独成 crate 是为了改它不牵动主 crate 的构建 |
 | `voxelith_app` | 装配层：把模型挂到一个 Bevy App 上 | `bevy_app` / `bevy_asset` / `bevy_scene` + core |
 | `voxelith_rules` | **规则层**：有效值缓存的重算 + 量之间的依赖（派生）、内容参数的加载 | core + `bevy_ecs` / `bevy_app` / `bevy_asset` / `serde` / `ron` |
 

@@ -175,6 +175,7 @@ fn unchanged_value_is_not_written_again() {
 
     // 从这以后值没变，就不该再动它
     app.update();
+
     assert_eq!(
         app.world().resource::<Touches>().0,
         settled,
