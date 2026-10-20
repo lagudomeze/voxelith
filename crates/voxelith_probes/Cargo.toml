@@ -16,3 +16,4 @@ bevy_asset.workspace = true
 bevy_ecs.workspace = true
 bevy_scene.workspace = true
 bevy_time.workspace = true
+bevy_math.workspace = true
