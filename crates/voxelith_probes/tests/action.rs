@@ -13,6 +13,8 @@
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
+use bevy_ecs::system::SystemParam;
 use bevy_time::{Fixed, Time, TimePlugin, TimeUpdateStrategy};
 use core::time::Duration;
 use voxelith_core::prelude::*;
@@ -120,19 +122,37 @@ struct ActionRejected {
     reason: RejectReason,
 }
 
+// ==================== 系统参数：给长查询起名字 ====================
+
+/// 模板上这次要用的定义（`QueryData`：字段有名，加一项只改一处）。
+#[derive(QueryData)]
+#[query_data(mutable)]
+struct TemplateParts {
+    skill_template: &'static SkillTemplate,
+    windup: &'static Windup,
+    mana_cost: Option<&'static Cost<Mana>>,
+    base_potency: Option<&'static BasePotency>,
+}
+
+/// 释放要用到的世界侧东西（`SystemParam`：免得 `begin_action` 的签名一长串）。
+#[derive(SystemParam)]
+struct CastContext<'w, 's> {
+    clock: Res<'w, Time<Fixed>>,
+    mana: Query<'w, 's, &'static mut Mana>,
+    stamina: Query<'w, 's, &'static mut Stamina>,
+    templates: Query<'w, 's, TemplateParts>,
+    casting: Query<'w, 's, &'static Actions>,
+    rejected: MessageWriter<'w, ActionRejected>,
+    commands: Commands<'w, 's>,
+}
+
 // ==================== 系统 ====================
 
 /// 释放：校验 → 付费 → 取消旧行动 → 算定前摇 → 生成实例。
 fn begin_action<A: ActionKind>(
     mut begins: MessageReader<BeginAction<A>>,
-    clock: Res<Time<Fixed>>,
-    mut rejected: MessageWriter<ActionRejected>,
-    mut mana: Query<&mut Mana>,
-    mut stamina: Query<&mut Stamina>,
-    templates: Query<(&SkillTemplate, &Windup, Option<&Cost<Mana>>, Option<&BasePotency>)>,
     marks: Query<(), With<A>>,
-    casting: Query<&Actions>,
-    mut commands: Commands,
+    mut ctx: CastContext,
 ) {
     for begin in begins.read() {
         // ① 模板上必须有这种行动的标记（编程错误 → panic，说得出名字）
@@ -144,17 +164,19 @@ fn begin_action<A: ActionKind>(
         );
 
         // ② 读模板（不是技能模板 → panic）
-        let Ok((_, windup, mana_cost, base_potency)) = templates.get(begin.skill) else {
+        let Ok(template) = ctx.templates.get(begin.skill) else {
             panic!("{:?} 不是技能模板（缺 SkillTemplate / Windup）", begin.skill);
         };
+        let windup = template.windup.0;
+        let base_potency = template.base_potency.map_or(0.0, |p| p.0);
 
         // ③ 代价：同步事务。不够 → 拒绝，**并且不动当前那次行动**
         let costs = Costs {
-            mana: mana_cost.map_or(0.0, Cost::amount),
+            mana: template.mana_cost.map_or(0.0, Cost::amount),
             stamina: 0.0,
         };
-        if let Err(reason) = try_pay(begin.actor, &costs, &mut mana, &mut stamina) {
-            rejected.write(ActionRejected {
+        if let Err(reason) = try_pay(begin.actor, &costs, &mut ctx.mana, &mut ctx.stamina) {
+            ctx.rejected.write(ActionRejected {
                 actor: begin.actor,
                 skill: begin.skill,
                 reason,
@@ -163,29 +185,28 @@ fn begin_action<A: ActionKind>(
         }
 
         // ④ 取消当前那次行动（`GP-03`），再生成新的
-        if let Ok(current) = casting.get(begin.actor) {
+        if let Ok(current) = ctx.casting.get(begin.actor) {
             for old in current.iter() {
-                commands.entity(old).despawn();
+                ctx.commands.entity(old).despawn();
             }
         }
 
         // ⑤ 前摇一次算定：模板的 Windup × 各种因素 → 四舍五入到整步（`D-011`）
-        let resolves_at = clock.elapsed() + round_to_step(windup.0, clock.timestep());
+        let resolves_at = ctx.clock.elapsed() + round_to_step(windup, ctx.clock.timestep());
 
         // ⑥ 生成实例：类型标记 + 参数 + 强度 + 归属
-        commands.spawn((
+        ctx.commands.spawn((
             Action {
                 resolves_at,
                 skill: begin.skill,
             },
             begin.params.clone(),
             A::default(),
-            Potency(base_potency.map_or(0.0, |p| p.0)),
+            Potency(base_potency),
             ActionOf(begin.actor),
         ));
     }
 }
-
 /// 到点：发消息 + 删实例。
 fn resolve_actions(
     clock: Res<Time<Fixed>>,
@@ -374,8 +395,11 @@ fn rejection_does_not_cancel_the_current_windup() {
         1,
         "应该有一条拒绝"
     );
+    let rejection = app.world().resource::<Rejected>().0[0];
+    assert_eq!(rejection.actor, hero, "拒绝消息带着谁");
+    assert_eq!(rejection.skill, skill, "拒绝消息带着哪个技能");
     assert_eq!(
-        app.world().resource::<Rejected>().0[0].reason,
+        rejection.reason,
         RejectReason::NotEnough(voxelith_rules::prelude::ResourceKind::Mana)
     );
     assert_eq!(
